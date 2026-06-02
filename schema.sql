@@ -13,6 +13,7 @@ create table documents (
   doi         text,
   source_type text not null default 'web_article',
   crawled_at  timestamptz,
+  raw_html    text,
   metadata    jsonb default '{}',
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
