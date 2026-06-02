@@ -1,5 +1,3 @@
-create extension if not exists "pgcrypto";
-
 -- ============================================================
 -- Documents
 -- ============================================================
@@ -21,17 +19,15 @@ create table documents (
 
 create unique index idx_documents_url on documents (url);
 
-alter table documents add column if not exists raw_html text;
-
 -- ============================================================
 -- Paragraphs
 -- ============================================================
 create table paragraphs (
   id          uuid primary key default gen_random_uuid(),
   document_id uuid not null references documents(id) on delete cascade,
-  idx         int not null,           -- position within the document
+  idx         int not null,
   content     text not null,
-  heading     text,                    -- section heading this paragraph belongs to
+  heading     text,
   char_count  int generated always as (length(content)) stored,
   created_at  timestamptz not null default now()
 );
@@ -45,17 +41,37 @@ create unique index idx_paragraphs_doc_idx on paragraphs (document_id, idx);
 create table sentences (
   id           uuid primary key default gen_random_uuid(),
   paragraph_id uuid not null references paragraphs(id) on delete cascade,
-  idx          int not null,           -- position within the paragraph
+  document_id  uuid not null references documents(id) on delete cascade,
+  doc_idx      int not null,            -- global position within the document
+  idx          int not null,            -- position within the paragraph
   content      text not null,
   char_count   int generated always as (length(content)) stored,
   created_at   timestamptz not null default now()
 );
 
 create index idx_sentences_paragraph_id on sentences (paragraph_id);
+create index idx_sentences_document_id on sentences (document_id);
+create index idx_sentences_doc_idx on sentences (document_id, doc_idx);
 create unique index idx_sentences_para_idx on sentences (paragraph_id, idx);
 
 -- ============================================================
--- Updated-at trigger (shared by all tables with updated_at)
+-- Chunks
+-- ============================================================
+create table chunks (
+  id                uuid primary key default gen_random_uuid(),
+  document_id       uuid not null references documents(id) on delete cascade,
+  content           text not null,
+  sentence_start    int not null,       -- first doc_idx in chunk
+  sentence_end      int not null,       -- last doc_idx in chunk
+  sentence_ids      uuid[] not null,
+  embedding_id      text,               -- id in ChromaDB
+  created_at        timestamptz not null default now()
+);
+
+create index idx_chunks_document_id on chunks (document_id);
+
+-- ============================================================
+-- Updated-at trigger
 -- ============================================================
 create or replace function trigger_set_updated_at()
 returns trigger as $$

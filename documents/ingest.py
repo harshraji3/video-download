@@ -3,6 +3,7 @@ import httpx
 from bs4 import BeautifulSoup
 from nltk.tokenize import sent_tokenize
 from documents.db import get_db
+from documents.indexer import index_document
 
 nltk.download("punkt_tab", quiet=True)
 
@@ -92,13 +93,17 @@ def ingest_web_article(url: str) -> dict:
         sentences_by_para = split_sentences(paragraphs)
 
         all_sentences = []
+        doc_idx = 0
         for para_row, sent_list in zip(inserted_paras, sentences_by_para):
             for s in sent_list:
                 all_sentences.append({
                     "paragraph_id": para_row["id"],
+                    "document_id": doc_id,
+                    "doc_idx": doc_idx,
                     "idx": s["paragraph_idx"],
                     "content": s["content"],
                 })
+                doc_idx += 1
                 sentence_count += 1
 
         if all_sentences:
@@ -106,4 +111,8 @@ def ingest_web_article(url: str) -> dict:
 
     doc_row["paragraph_count"] = len(para_rows)
     doc_row["sentence_count"] = sentence_count
+
+    chunk_count = index_document(doc_id)
+    doc_row["chunk_count"] = chunk_count
+
     return doc_row
