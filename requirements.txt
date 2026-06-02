@@ -3,3 +3,6 @@ uvicorn
 httpx
 supabase
 python-dotenv
+beautifulsoup4
+lxml
+nltk

@@ -16,6 +16,8 @@ async def ingest_web(req: IngestRequest):
             document_id=row["id"],
             url=row["url"],
             title=row.get("title"),
+            paragraph_count=row.get("paragraph_count", 0),
+            sentence_count=row.get("sentence_count", 0),
         )
     except Exception as e:
         raise HTTPException(500, str(e))
