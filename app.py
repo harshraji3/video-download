@@ -1,6 +1,9 @@
 from fastapi import FastAPI, HTTPException
+from dotenv import load_dotenv
 from documents.models import IngestRequest, IngestResponse
 from documents.ingest import ingest_web_article
+
+load_dotenv()
 
 app = FastAPI(title="Video Search - Ingestion API")
 

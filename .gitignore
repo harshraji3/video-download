@@ -1,2 +1,4 @@
 .env
 sample code.txt
+__pycache__
+documents/__pycache__

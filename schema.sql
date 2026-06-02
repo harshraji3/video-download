@@ -21,6 +21,8 @@ create table documents (
 
 create unique index idx_documents_url on documents (url);
 
+alter table documents add column if not exists raw_html text;
+
 -- ============================================================
 -- Paragraphs
 -- ============================================================
