@@ -121,19 +121,31 @@ def assign_timestamps(sentences: list[str], segments: list[dict]) -> list[dict]:
     return result
 
 
-def _extract_llm_metadata(text: str) -> dict:
+_METADATA_FIELDS = {
+    "theme": "2-3 word theme",
+    "speaker_names": '["Name1", "Name2"] or [] if none',
+    "speaker_role": "role if clear from transcript or null",
+    "organization": "organization if mentioned or null",
+    "short_summary": "1-2 sentence summary",
+}
+
+
+def _extract_llm_metadata(text: str, fields: list[str]) -> dict:
+    schema_lines = []
+    for f in fields:
+        hint = _METADATA_FIELDS[f]
+        schema_lines.append(f'  "{f}": {hint},')
+    schema = "\n".join(schema_lines)
+
     try:
         client = genai.Client(api_key=os.environ["GOOGLE_API_KEY"])
         resp = client.models.generate_content(
             model="models/gemma-4-31b-it",
             contents=(
-                "Extract metadata from this transcript. Return ONLY valid JSON, no markdown, no code fences, no explanation.\n"
+                "Extract the following fields from this transcript. "
+                "Return ONLY valid JSON, no markdown, no code fences, no explanation.\n"
                 "{\n"
-                '  "theme": "2-3 word theme",\n'
-                '  "speaker_names": ["Name1", "Name2"] or [] if none,\n'
-                '  "speaker_role": "role if clear from transcript" or null,\n'
-                '  "organization": "organization if mentioned" or null,\n'
-                '  "short_summary": "1-2 sentence summary"\n'
+                f"{schema}\n"
                 "}\n\n"
                 f"Transcript: {text[:2500]}"
             ),
@@ -169,22 +181,23 @@ def ingest_audio(
         speaker_count = _estimate_speaker_count(file_path)
 
     keywords = _extract_keywords(raw_result["content"])
-    llm_meta = _extract_llm_metadata(raw_result["content"])
+
+    known = {
+        "speaker_names": speaker_names,
+        "speaker_role": speaker_role,
+        "organization": organization,
+        "short_summary": short_summary,
+    }
+    missing = [f for f, v in known.items() if v is None]
+    missing.append("theme")
+
+    llm_meta = _extract_llm_metadata(raw_result["content"], missing)
 
     theme = llm_meta.get("theme")
-    resolved_speaker_names = llm_meta.get("speaker_names") or []
-    resolved_speaker_role = llm_meta.get("speaker_role")
-    resolved_organization = llm_meta.get("organization")
-    resolved_short_summary = llm_meta.get("short_summary")
-
-    if speaker_names is not None:
-        resolved_speaker_names = speaker_names
-    if speaker_role is not None:
-        resolved_speaker_role = speaker_role
-    if organization is not None:
-        resolved_organization = organization
-    if short_summary is not None:
-        resolved_short_summary = short_summary
+    resolved_speaker_names = speaker_names if speaker_names is not None else (llm_meta.get("speaker_names") or [])
+    resolved_speaker_role = speaker_role if speaker_role is not None else llm_meta.get("speaker_role")
+    resolved_organization = organization if organization is not None else llm_meta.get("organization")
+    resolved_short_summary = short_summary if short_summary is not None else llm_meta.get("short_summary")
 
     audio = (
         db.table("audio_files")
