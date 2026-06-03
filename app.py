@@ -2,12 +2,13 @@ import os
 import uuid as uuid_pkg
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from dotenv import load_dotenv
-from webpage.models import IngestRequest, IngestResponse, QueryRequest, QueryResponse
+from webpage.models import IngestRequest, IngestResponse, QueryRequest, QueryResponse, Citation
 from webpage.ingest import ingest_web_article
 from webpage.indexer import index_document, search as vector_search
 from audio.models import IngestResponse as AudioIngestResponse
 from audio.ingest import ingest_audio
 from audio.indexer import search as audio_search
+from generator import generate_answer
 
 load_dotenv()
 
@@ -87,7 +88,15 @@ async def query(req: QueryRequest):
         results.sort(key=lambda r: r["score"], reverse=True)
         results = results[: req.top_k]
 
-        return QueryResponse(query=req.query, results=results)
+        gen = generate_answer(req.query, results)
+
+        return QueryResponse(
+            query=req.query,
+            results=results,
+            answer=gen["answer"],
+            insufficient_evidence=gen.get("insufficient_evidence", False),
+            citations=[Citation(**c) for c in gen.get("citations", [])],
+        )
     except Exception as e:
         raise HTTPException(500, str(e))
 
