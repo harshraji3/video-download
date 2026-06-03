@@ -53,6 +53,11 @@ async def ingest_audio_endpoint(
     file: UploadFile = File(...),
     title: str | None = Form(None),
     speaker: str | None = Form(None),
+    speaker_count: int | None = Form(None),
+    speaker_names: str | None = Form(None),
+    speaker_role: str | None = Form(None),
+    organization: str | None = Form(None),
+    short_summary: str | None = Form(None),
 ):
     try:
         ext = os.path.splitext(file.filename or "audio.mp3")[1]
@@ -62,12 +67,29 @@ async def ingest_audio_endpoint(
         with open(local_path, "wb") as f:
             f.write(await file.read())
 
-        row = ingest_audio(local_path, title=title, speaker=speaker)
+        row = ingest_audio(
+            local_path,
+            title=title,
+            speaker=speaker,
+            speaker_count=speaker_count,
+            speaker_names=[s.strip() for s in speaker_names.split(",")] if speaker_names else None,
+            speaker_role=speaker_role,
+            organization=organization,
+            short_summary=short_summary,
+        )
         return AudioIngestResponse(
             audio_file_id=row["id"],
             filename=row["filename"],
             title=row.get("title"),
             speaker=row.get("speaker"),
+            speaker_names=row.get("speaker_names", []),
+            speaker_role=row.get("speaker_role"),
+            organization=row.get("organization"),
+            short_summary=row.get("short_summary"),
+            language=row.get("language"),
+            speaker_count=row.get("speaker_count"),
+            theme=row.get("theme"),
+            keywords=row.get("keywords", []),
             duration_seconds=row.get("duration_seconds"),
             transcript_sentence_count=row.get("transcript_sentence_count", 0),
             chunk_count=row.get("chunk_count", 0),

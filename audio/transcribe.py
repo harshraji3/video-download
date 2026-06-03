@@ -3,7 +3,7 @@ import whisper
 
 def transcribe(file_path: str) -> dict:
     model = whisper.load_model("base")
-    result = model.transcribe(file_path, language="en", fp16=False)
+    result = model.transcribe(file_path, fp16=False)
 
     segments = []
     for seg in result["segments"]:
@@ -16,4 +16,5 @@ def transcribe(file_path: str) -> dict:
     return {
         "content": result["text"].strip(),
         "segments": segments,
+        "language": result.get("language", "unknown"),
     }
