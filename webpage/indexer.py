@@ -4,7 +4,7 @@ import os
 
 import chromadb
 from google import genai
-from documents.db import get_db
+from webpage.db import get_db
 
 CHUNK_SIZE = 3
 STRIDE = 2

@@ -1,8 +1,8 @@
 from fastapi import FastAPI, HTTPException
 from dotenv import load_dotenv
-from documents.models import IngestRequest, IngestResponse, QueryRequest, QueryResponse
-from documents.ingest import ingest_web_article
-from documents.indexer import index_document, search as vector_search
+from webpage.models import IngestRequest, IngestResponse, QueryRequest, QueryResponse
+from webpage.ingest import ingest_web_article
+from webpage.indexer import index_document, search as vector_search
 
 load_dotenv()
 

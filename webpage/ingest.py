@@ -2,8 +2,8 @@ import nltk
 import httpx
 from bs4 import BeautifulSoup
 from nltk.tokenize import sent_tokenize
-from documents.db import get_db
-from documents.indexer import index_document
+from webpage.db import get_db
+from webpage.indexer import index_document
 
 nltk.download("punkt_tab", quiet=True)
 
