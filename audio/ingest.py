@@ -7,27 +7,42 @@ from audio.indexer import index_audio
 AUDIO_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "audio_files")
 
 
-def _split_sentences_with_timestamps(segments: list[dict]) -> list[dict]:
-    all_sentences = []
-    for seg in segments:
-        sentences = sent_tokenize(seg["text"])
-        seg_duration = seg["end"] - seg["start"]
-        total_chars = len(seg["text"]) or 1
-        char_start = 0
-        for i, s in enumerate(sentences):
-            if not s.strip():
-                continue
-            char_end = char_start + len(s)
-            frac_start = char_start / total_chars
-            frac_end = char_end / total_chars
-            all_sentences.append({
-                "content": s.strip(),
-                "idx": i,
-                "start_time": round(seg["start"] + frac_start * seg_duration, 2),
-                "end_time": round(seg["start"] + frac_end * seg_duration, 2),
-            })
-            char_start = char_end
-    return all_sentences
+def split_sentences(text: str) -> list[str]:
+    return [s.strip() for s in sent_tokenize(text) if s.strip()]
+
+
+def assign_timestamps(sentences: list[str], segments: list[dict]) -> list[dict]:
+    seg_texts = [seg["text"].strip() for seg in segments]
+
+    char_to_seg: list[int] = []
+    for seg_idx, text in enumerate(seg_texts):
+        for _ in text:
+            char_to_seg.append(seg_idx)
+        if seg_idx < len(seg_texts) - 1:
+            char_to_seg.append(seg_idx)
+
+    full_text = " ".join(seg_texts)
+
+    result = []
+    cursor = 0
+    for sent in sentences:
+        start = full_text.find(sent, cursor)
+        if start == -1:
+            continue
+        end = start + len(sent) - 1
+        cursor = end + 1
+
+        seg_ids = set(char_to_seg[start : end + 1])
+        first_seg = min(seg_ids)
+        last_seg = max(seg_ids)
+
+        result.append({
+            "content": sent,
+            "start_time": segments[first_seg]["start"],
+            "end_time": segments[last_seg]["end"],
+        })
+
+    return result
 
 
 def ingest_audio(file_path: str, title: str | None = None, speaker: str | None = None) -> dict:
@@ -74,14 +89,15 @@ def ingest_audio(file_path: str, title: str | None = None, speaker: str | None =
         "id", audio_id
     ).execute()
 
-    sent_list = _split_sentences_with_timestamps(result["segments"])
+    sentences = split_sentences(result["content"])
+    sent_list = assign_timestamps(sentences, result["segments"])
 
     sentence_rows = [
         {
             "transcript_id": transcript_id,
             "audio_file_id": audio_id,
             "doc_idx": doc_idx,
-            "idx": s["idx"],
+            "idx": doc_idx,
             "content": s["content"],
             "start_time": s["start_time"],
             "end_time": s["end_time"],

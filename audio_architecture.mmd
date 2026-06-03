@@ -3,23 +3,24 @@ flowchart TD
   %% INGESTION
   A[Audio File] --> B[Store Raw Audio]
 
-  A --> C[Speech-to-Text Transcription]
+  A --> C[Whisper<br/>Speech-to-Text Transcription]
 
-  C --> D[Transcript with Timestamps]
+  C --> D[Transcript]
 
-  D --> E[Transcript Segment Splitter]
+  D --> E[Sentence Splitter<br/>on full transcript]
 
-  E --> F1[Segment 1<br/>00:00-00:30]
-  E --> F2[Segment 2<br/>00:30-01:00]
-  E --> F3[Segment N]
+  E --> F1[Sentence 1]
+  E --> F2[Sentence 2]
+  E --> F3[Sentence N]
 
-  F1 --> G[Sentence Splitter]
+
+  F1 --> G[Generate Timestamps]
   F2 --> G
   F3 --> G
 
-  G --> H1[Sentence 1<br/>Timestamp]
-  G --> H2[Sentence 2<br/>Timestamp]
-  G --> H3[Sentence N<br/>Timestamp]
+  G --> H1[Sentence 1<br/>00:00-00:07]
+  G --> H2[Sentence 2<br/>00:07-00:15]
+  G --> H3[Sentence N<br/>00:30-00:45]
 
   H1 --> I[Store Transcript Sentences]
   H2 --> I
