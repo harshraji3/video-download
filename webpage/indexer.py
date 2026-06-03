@@ -142,10 +142,12 @@ def search(query: str, top_k: int = 5) -> list[dict]:
             db.table("documents")
             .select("id, url, title")
             .eq("id", document_id)
-            .single()
+            .limit(1)
             .execute()
         )
-        doc_row = doc.data if doc.data else {}
+        if not doc.data:
+            continue
+        doc_row = doc.data[0]
 
         sentences = (
             db.table("sentences")

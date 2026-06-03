@@ -148,10 +148,12 @@ def search(query: str, top_k: int = 5) -> list[dict]:
             db.table("audio_files")
             .select("id, filename, title, speaker")
             .eq("id", audio_file_id)
-            .single()
+            .limit(1)
             .execute()
         )
-        audio_row = audio.data if audio.data else {}
+        if not audio.data:
+            continue
+        audio_row = audio.data[0]
 
         sentences = (
             db.table("transcript_sentences")
