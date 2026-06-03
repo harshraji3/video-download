@@ -8,3 +8,4 @@ lxml
 nltk
 chromadb
 google-genai
+openai-whisper

@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 import os
+import uuid as uuid_pkg
 
 import chromadb
 from google import genai
-from webpage.db import get_db
+from audio.db import get_db
 
 CHUNK_SIZE = 3
 STRIDE = 2
-COLLECTION_NAME = "document_chunks"
+COLLECTION_NAME = "audio_chunks"
+AUDIO_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "audio_files")
 CHROMA_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "chroma_db")
 
 _genai_client: genai.Client | None = None
@@ -52,18 +54,20 @@ def create_chunks(sentences: list[dict]) -> list[dict]:
             "sentence_start": i,
             "sentence_end": i + len(window) - 1,
             "sentence_ids": [s["id"] for s in window],
+            "start_time": window[0]["start_time"],
+            "end_time": window[-1]["end_time"],
         })
         i += STRIDE
     return chunks
 
 
-def index_document(document_id: str) -> int:
+def index_audio(audio_file_id: str) -> int:
     db = get_db()
 
     rows = (
-        db.table("sentences")
-        .select("id, content, doc_idx")
-        .eq("document_id", document_id)
+        db.table("transcript_sentences")
+        .select("id, content, doc_idx, start_time, end_time")
+        .eq("audio_file_id", audio_file_id)
         .order("doc_idx")
         .execute()
     )
@@ -72,23 +76,23 @@ def index_document(document_id: str) -> int:
         return 0
 
     chunks = create_chunks(sentences)
-
     chunk_texts = [c["content"] for c in chunks]
-
     embeddings = embed_texts(chunk_texts)
 
     chunk_rows = [
         {
-            "document_id": document_id,
+            "audio_file_id": audio_file_id,
             "content": c["content"],
             "sentence_start": c["sentence_start"],
             "sentence_end": c["sentence_end"],
             "sentence_ids": c["sentence_ids"],
+            "start_time": c["start_time"],
+            "end_time": c["end_time"],
         }
         for c in chunks
     ]
 
-    inserted = db.table("chunks").insert(chunk_rows).execute()
+    inserted = db.table("audio_chunks").insert(chunk_rows).execute()
     inserted_chunks = inserted.data
 
     chroma_ids: list[str] = []
@@ -97,17 +101,19 @@ def index_document(document_id: str) -> int:
 
     for chunk_row, chunk_data, emb in zip(inserted_chunks, chunks, embeddings):
         chunk_id = chunk_row["id"]
-        chroma_ids.append(f"chunk_{chunk_id}")
+        chroma_ids.append(f"audio_chunk_{chunk_id}")
         chroma_embeds.append(emb)
         chroma_metas.append({
             "chunk_id": chunk_id,
-            "document_id": document_id,
+            "audio_file_id": audio_file_id,
             "sentence_start": chunk_data["sentence_start"],
             "sentence_end": chunk_data["sentence_end"],
             "content": chunk_data["content"],
+            "start_time": chunk_data["start_time"],
+            "end_time": chunk_data["end_time"],
         })
 
-        db.table("chunks").update({"embedding_id": f"chunk_{chunk_id}"}).eq(
+        db.table("audio_chunks").update({"embedding_id": f"audio_chunk_{chunk_id}"}).eq(
             "id", chunk_id
         ).execute()
 
@@ -135,22 +141,22 @@ def search(query: str, top_k: int = 5) -> list[dict]:
     for i in range(len(results["ids"][0])):
         meta = results["metadatas"][0][i]
         chunk_id = meta["chunk_id"]
-        document_id = meta["document_id"]
+        audio_file_id = meta["audio_file_id"]
         distance = results["distances"][0][i]
 
-        doc = (
-            db.table("documents")
-            .select("id, url, title")
-            .eq("id", document_id)
+        audio = (
+            db.table("audio_files")
+            .select("id, filename, title, speaker")
+            .eq("id", audio_file_id)
             .single()
             .execute()
         )
-        doc_row = doc.data if doc.data else {}
+        audio_row = audio.data if audio.data else {}
 
         sentences = (
-            db.table("sentences")
-            .select("id, content, doc_idx")
-            .eq("document_id", document_id)
+            db.table("transcript_sentences")
+            .select("id, content, doc_idx, start_time, end_time")
+            .eq("audio_file_id", audio_file_id)
             .gte("doc_idx", meta["sentence_start"])
             .lte("doc_idx", meta["sentence_end"])
             .order("doc_idx")
@@ -158,9 +164,9 @@ def search(query: str, top_k: int = 5) -> list[dict]:
         )
 
         context_sentences = (
-            db.table("sentences")
-            .select("id, content, doc_idx")
-            .eq("document_id", document_id)
+            db.table("transcript_sentences")
+            .select("id, content, doc_idx, start_time, end_time")
+            .eq("audio_file_id", audio_file_id)
             .gte("doc_idx", max(0, meta["sentence_start"] - 2))
             .lte("doc_idx", meta["sentence_end"] + 2)
             .order("doc_idx")
@@ -169,13 +175,15 @@ def search(query: str, top_k: int = 5) -> list[dict]:
 
         evidence_blocks.append({
             "chunk_id": chunk_id,
-            "source_type": "webpage",
-            "document_id": document_id,
-            "document_url": doc_row.get("url"),
-            "document_title": doc_row.get("title"),
+            "source_type": "audio",
+            "audio_file_id": audio_file_id,
+            "audio_title": audio_row.get("title"),
+            "speaker": audio_row.get("speaker"),
             "content": meta["content"],
             "sentences": sentences.data,
             "context_window": context_sentences.data,
+            "start_time": meta["start_time"],
+            "end_time": meta["end_time"],
             "score": 1.0 - distance,
         })
 
