@@ -1,0 +1,71 @@
+flowchart TD
+
+  %% ========== INGESTION ==========
+  A["🎤 Audio File<br/>(MP3/WAV)"] --> B["Upload via<br/>FastAPI / SAS URL"]
+
+  B --> C[("🗄️ Azure Blob Storage<br/><i>raw-audio container</i>")]
+
+  C -- "BlobCreated event" --> D[("⚡ Event Grid")]
+
+  D --> E["⚙️ Azure Function<br/><b>SubmitTranscription</b>"]
+
+  E --> F["🗣️ Azure AI Speech<br/><b>Batch Transcription API</b><br/><i>incl. speaker diarization</i>"]
+
+  F --> G[("🗄️ Azure Blob Storage<br/><i>transcript-results container</i>")]
+
+  G -- "BlobCreated event" --> H[("⚡ Event Grid")]
+
+  H --> I["⚙️ Azure Function<br/><b>ProcessTranscript</b>"]
+
+  I --> J["Split into sentences<br/>& map to timestamps"]
+
+  J --> K["🧠 Azure OpenAI<br/><b>text-embedding-3-large</b><br/><i>generate chunk embeddings</i>"]
+
+  K --> L["🏗️ Azure AI Search<br/><i>hybrid + vector index</i>"]
+
+  I --> M["🧠 Azure OpenAI<br/><b>GPT-4o</b><br/><i>extract theme, speaker<br/>names, summary</i>"]
+
+  M --> N[("🐘 Azure Database<br/>for PostgreSQL<br/><i>Flexible Server</i>")]
+
+  C --> N
+  J --> N
+  L --> N
+
+  N --> O["🔄 Store: audio_files,<br/>transcripts, sentences,<br/>chunks, embeddings"]
+
+  %% ========== RETRIEVAL ==========
+  P["💬 User Query"] --> Q["🧠 Azure OpenAI<br/><b>text-embedding-3-large</b><br/><i>embed query</i>"]
+
+  Q --> L
+
+  L --> R["🏆 Top-K matching chunks<br/><i>hybrid search</i>"]
+
+  R --> S["🔍 Fetch full context<br/>from PostgreSQL"]
+
+  N --> S
+
+  S --> T["🧠 Azure OpenAI<br/><b>GPT-4o</b><br/><i>answer generation</i>"]
+
+  T --> U["✅ Answer + Citations<br/><i>with source metadata</i>"]
+
+  U --> V["📎 Source Metadata<br/>Audio Title · Speaker<br/>Timestamps · Excerpt"]
+
+  V --> W["🔗 Answer with<br/>Clickable Evidence"]
+
+  %% ========== STYLING ==========
+  style A fill:#f9f,stroke:#333,stroke-width:2px
+  style C fill:#0078D4,color:#fff
+  style D fill:#FFA500,color:#fff
+  style E fill:#0078D4,color:#fff
+  style F fill:#0078D4,color:#fff
+  style G fill:#0078D4,color:#fff
+  style H fill:#FFA500,color:#fff
+  style I fill:#0078D4,color:#fff
+  style K fill:#0078D4,color:#fff
+  style L fill:#0078D4,color:#fff
+  style M fill:#0078D4,color:#fff
+  style N fill:#0078D4,color:#fff
+  style P fill:#f9f,stroke:#333,stroke-width:2px
+  style Q fill:#0078D4,color:#fff
+  style T fill:#0078D4,color:#fff
+  style U fill:#4CAF50,color:#fff

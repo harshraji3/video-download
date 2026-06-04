@@ -1,86 +1,13 @@
 import os
+import json
 import re
-import subprocess
-import tempfile
-from collections import Counter
-import numpy as np
-import soundfile as sf
-from scipy.cluster.hierarchy import fcluster, linkage
 from google import genai
-from nltk.tokenize import sent_tokenize, word_tokenize
+from nltk.tokenize import sent_tokenize
 from audio.db import get_db
-from audio.transcribe import transcribe
+from audio.video_indexer import transcribe_audio
 from audio.indexer import index_audio
 
 AUDIO_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "audio_files")
-
-_STOPWORDS = {
-    "a", "an", "the", "and", "or", "but", "in", "on", "at", "to", "for",
-    "of", "with", "by", "from", "up", "about", "into", "over", "after",
-    "is", "are", "was", "were", "be", "been", "being", "have", "has",
-    "had", "do", "does", "did", "will", "would", "could", "should",
-    "may", "might", "shall", "can", "need", "dare", "ought", "used",
-    "it", "its", "it's", "i", "you", "he", "she", "we", "they",
-    "me", "him", "her", "us", "them", "my", "your", "his", "its",
-    "our", "their", "this", "that", "these", "those", "what", "which",
-    "who", "whom", "when", "where", "why", "how", "all", "each",
-    "every", "both", "few", "more", "most", "other", "some", "such",
-    "no", "nor", "not", "only", "own", "same", "so", "than", "too",
-    "very", "just", "because", "as", "if", "then", "else", "also",
-    "like", "well", "really", "actually", "basically", "literally",
-    "here", "there", "get", "got", "go", "going", "went", "come",
-    "came", "take", "took", "make", "made", "know", "knows", "think",
-    "thinks", "say", "says", "see", "seen", "want", "wants", "let",
-    "sure", "right", "way", "thing", "things", "something", "nothing",
-    "everything", "one", "two", "first", "last", "next", "new", "old",
-    "good", "great", "big", "little", "long", "much", "many",
-}
-
-
-def _estimate_speaker_count(file_path: str) -> int | None:
-    try:
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-            tmp_path = tmp.name
-        subprocess.run(
-            ["ffmpeg", "-y", "-i", file_path, "-ar", "16000", "-ac", "1",
-             "-sample_fmt", "s16", tmp_path],
-            capture_output=True, check=True,
-        )
-
-        y, sr = sf.read(tmp_path)
-        os.unlink(tmp_path)
-
-        import librosa
-
-        if len(y.shape) > 1:
-            y = y.mean(axis=1)
-
-        intervals = librosa.effects.split(y, top_db=30)
-
-        features = []
-        for start, end in intervals:
-            segment = y[start:end]
-            if len(segment) < sr:
-                continue
-            mfcc = librosa.feature.mfcc(y=segment, sr=sr, n_mfcc=13)
-            features.append(mfcc.mean(axis=1))
-
-        if len(features) < 3:
-            return None
-
-        Z = linkage(features, method="ward")
-        clusters = fcluster(Z, t=1.5, criterion="distance")
-        return int(clusters.max())
-    except Exception:
-        return None
-
-
-def _extract_keywords(text: str, top_n: int = 10) -> list[str]:
-    text = text.lower()
-    text = re.sub(r"[^\w\s]", "", text)
-    words = word_tokenize(text)
-    words = [w for w in words if w not in _STOPWORDS and len(w) > 2]
-    return [w for w, _ in Counter(words).most_common(top_n)]
 
 
 def split_sentences(text: str) -> list[str]:
@@ -150,7 +77,6 @@ def _extract_llm_metadata(text: str, fields: list[str]) -> dict:
                 f"Transcript: {text[:2500]}"
             ),
         )
-        import re, json
         raw = resp.text.strip()
         raw = re.sub(r"^```(?:json)?\s*", "", raw)
         raw = re.sub(r"\s*```$", "", raw)
@@ -175,12 +101,12 @@ def ingest_audio(
     filename = os.path.basename(file_path)
     file_size = os.path.getsize(file_path)
 
-    raw_result = transcribe(file_path)
+    vi_result = transcribe_audio(file_path)
 
     if speaker_count is None:
-        speaker_count = _estimate_speaker_count(file_path)
+        speaker_count = vi_result.get("speaker_count")
 
-    keywords = _extract_keywords(raw_result["content"])
+    keywords = vi_result.get("keywords", [])
 
     known = {
         "speaker_names": speaker_names,
@@ -191,7 +117,7 @@ def ingest_audio(
     missing = [f for f, v in known.items() if v is None]
     missing.append("theme")
 
-    llm_meta = _extract_llm_metadata(raw_result["content"], missing)
+    llm_meta = _extract_llm_metadata(vi_result["content"], missing)
 
     theme = llm_meta.get("theme")
     resolved_speaker_names = speaker_names if speaker_names is not None else (llm_meta.get("speaker_names") or [])
@@ -211,7 +137,7 @@ def ingest_audio(
             "organization": resolved_organization,
             "short_summary": resolved_short_summary,
             "speaker_count": speaker_count,
-            "language": raw_result["language"],
+            "language": vi_result["language"],
             "theme": theme,
             "keywords": keywords,
             "file_size_bytes": file_size,
@@ -227,9 +153,9 @@ def ingest_audio(
         db.table("transcripts")
         .insert({
             "audio_file_id": audio_id,
-            "content": raw_result["content"],
-            "segments": raw_result["segments"],
-            "model_used": "whisper",
+            "content": vi_result["content"],
+            "segments": vi_result["segments"],
+            "model_used": "azure_video_indexer",
         })
         .execute()
     )
@@ -238,13 +164,13 @@ def ingest_audio(
     transcript_row = transcript.data[0]
     transcript_id = transcript_row["id"]
 
-    duration = raw_result["segments"][-1]["end"] if raw_result["segments"] else 0
+    duration = vi_result.get("duration", 0)
     db.table("audio_files").update({"duration_seconds": round(duration, 2)}).eq(
         "id", audio_id
     ).execute()
 
-    sentences = split_sentences(raw_result["content"])
-    sent_list = assign_timestamps(sentences, raw_result["segments"])
+    sentences = split_sentences(vi_result["content"])
+    sent_list = assign_timestamps(sentences, vi_result["segments"])
 
     sentence_rows = [
         {
