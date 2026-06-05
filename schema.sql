@@ -87,6 +87,9 @@ create table audio_files (
   speaker_count   int,
   theme           text,
   keywords        text[] default '{}',
+  drug_names      text[] default '{}',
+  cancer_types    text[] default '{}',
+  biomarkers      text[] default '{}',
   duration_seconds numeric,
   file_size_bytes int,
   mime_type       text not null default 'audio/mpeg',
@@ -103,7 +106,7 @@ create table transcripts (
   audio_file_id   uuid not null references audio_files(id) on delete cascade,
   content         text not null,
   segments        jsonb not null default '[]',
-  model_used      text not null default 'whisper',
+  model_used      text not null default 'azure_content_understanding',
   created_at      timestamptz not null default now()
 );
 
@@ -169,3 +172,11 @@ drop trigger if exists set_updated_at_audio on audio_files;
 create trigger set_updated_at_audio
   before update on audio_files
   for each row execute function trigger_set_updated_at();
+
+-- ============================================================
+-- Migration: Add Content Understanding columns
+-- Run in Supabase SQL editor if upgrading an existing database
+-- ============================================================
+-- alter table audio_files add column if not exists drug_names text[] default '{}';
+-- alter table audio_files add column if not exists cancer_types text[] default '{}';
+-- alter table audio_files add column if not exists biomarkers text[] default '{}';
