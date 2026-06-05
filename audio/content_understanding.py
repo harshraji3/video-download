@@ -13,7 +13,7 @@ def _get_env(key: str) -> str:
     return val
 
 
-def _upload_to_blob(file_path: str) -> str:
+def _upload_to_blob(file_path: str) -> tuple[str, str, str]:
     conn_str = _get_env("AZURE_STORAGE_CONNECTION_STRING")
     container = _get_env("AZURE_STORAGE_CONTAINER")
     blob_name = f"{uuid.uuid4()}{os.path.splitext(file_path)[1]}"
@@ -23,7 +23,7 @@ def _upload_to_blob(file_path: str) -> str:
     blob_client = container_client.get_blob_client(blob_name)
 
     with open(file_path, "rb") as f:
-        blob_client.upload_blob(f, overwrite=True)
+        blob_client.upload_blob(f,overwrite=True)
 
     parts = dict(p.split("=", 1) for p in conn_str.split(";") if "=" in p)
     sas_token = generate_blob_sas(
@@ -34,7 +34,7 @@ def _upload_to_blob(file_path: str) -> str:
         permission=BlobSasPermissions(read=True),
         expiry=datetime.now(timezone.utc) + timedelta(hours=1),
     )
-    return f"{blob_client.url}?{sas_token}"
+    return f"{blob_client.url}?{sas_token}", container, blob_name, conn_str
 
 
 _HTTP = httpx.Client(timeout=httpx.Timeout(300.0, connect=30.0))
@@ -157,8 +157,28 @@ def _parse_result(result: dict) -> dict:
     }
 
 
+def _set_blob_metadata(
+    conn_str: str, container: str, blob_name: str, data: dict
+) -> None:
+    client = BlobServiceClient.from_connection_string(conn_str)
+    blob_client = client.get_container_client(container).get_blob_client(blob_name)
+
+    meta = {}
+    for k in (
+        "summary", "topics", "keywords", "speaker_count", "speaker_names",
+        "drug_names", "cancer_types", "biomarkers", "company_name",
+    ):
+        v = data.get(k)
+        if v:
+            meta[k] = str(v)
+
+    blob_client.set_blob_metadata(metadata=meta)
+
+
 def transcribe_audio(file_path: str) -> dict:
-    audio_url = _upload_to_blob(file_path)
+    audio_url, container, blob_name, conn_str = _upload_to_blob(file_path)
     _, op_url = _start_analysis(audio_url)
     result = _wait_for_analysis(op_url)
-    return _parse_result(result)
+    parsed = _parse_result(result)
+    _set_blob_metadata(conn_str, container, blob_name, parsed)
+    return parsed
