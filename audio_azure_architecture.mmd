@@ -1,71 +1,45 @@
 flowchart TD
 
   %% ========== INGESTION ==========
-  A["🎤 Audio File<br/>(MP3/WAV)"] --> B["Upload via<br/>FastAPI / SAS URL"]
+  A["Audio File<br/>(MP3/WAV)"] --> B["FastAPI Endpoint<br/><b>/ingest-audio</b>"]
 
-  B --> C[("🗄️ Azure Blob Storage<br/><i>raw-audio container</i>")]
+  B --> C[("Azure Blob Storage<br/><i>audio-files container</i>")]
+  C --> D["Azure Content Understanding<br/><b>:analyze</b><br/><i>transcription + field extraction</i>"]
 
-  C -- "BlobCreated event" --> D[("⚡ Event Grid")]
+  D --> E1["Transcript Phrases<br/>& word timestamps"]
+  D --> E2["Extracted Fields<br/>summary · topics · keywords<br/>drug_names · cancer_types<br/>biomarkers · speaker_names<br/>company_name"]
 
-  D --> E["⚙️ Azure Function<br/><b>SubmitTranscription</b>"]
+  E1 --> F["Store Transcript<br/>& Sentences"]
+  E2 --> F
 
-  E --> F["🗣️ Azure AI Speech<br/><b>Batch Transcription API</b><br/><i>incl. speaker diarization</i>"]
+  F --> G["Create Overlapping Chunks<br/><i>sliding window</i>"]
 
-  F --> G[("🗄️ Azure Blob Storage<br/><i>transcript-results container</i>")]
+  G --> H["Azure OpenAI<br/><b>text-embedding-ada-002</b><br/><i>generate chunk embeddings</i>"]
 
-  G -- "BlobCreated event" --> H[("⚡ Event Grid")]
+  H --> I["Azure AI Search<br/><i>hybrid + vector index</i>"]
 
-  H --> I["⚙️ Azure Function<br/><b>ProcessTranscript</b>"]
+  C --> J[("PostgreSQL<br/><i>Supabase</i>")]
+  F --> J
+  G --> J
+  I --> J
 
-  I --> J["Split into sentences<br/>& map to timestamps"]
-
-  J --> K["🧠 Azure OpenAI<br/><b>text-embedding-3-large</b><br/><i>generate chunk embeddings</i>"]
-
-  K --> L["🏗️ Azure AI Search<br/><i>hybrid + vector index</i>"]
-
-  I --> M["🧠 Azure OpenAI<br/><b>GPT-4o</b><br/><i>extract theme, speaker<br/>names, summary</i>"]
-
-  M --> N[("🐘 Azure Database<br/>for PostgreSQL<br/><i>Flexible Server</i>")]
-
-  C --> N
-  J --> N
-  L --> N
-
-  N --> O["🔄 Store: audio_files,<br/>transcripts, sentences,<br/>chunks, embeddings"]
+  J --> K["Tables: audio_files,<br/>transcripts, sentences,<br/>chunks"]
 
   %% ========== RETRIEVAL ==========
-  P["💬 User Query"] --> Q["🧠 Azure OpenAI<br/><b>text-embedding-3-large</b><br/><i>embed query</i>"]
+  L["💬 User Query"] --> M["Azure OpenAI<br/><b>text-embedding-ada-002</b><br/><i>embed query</i>"]
 
-  Q --> L
+  M --> I
 
-  L --> R["🏆 Top-K matching chunks<br/><i>hybrid search</i>"]
+  I --> N["Top-K matching chunks<br/><i>hybrid search</i>"]
 
-  R --> S["🔍 Fetch full context<br/>from PostgreSQL"]
+  N --> O["Fetch full context<br/>from PostgreSQL"]
 
-  N --> S
+  J --> O
 
-  S --> T["🧠 Azure OpenAI<br/><b>GPT-4o</b><br/><i>answer generation</i>"]
+  O --> P["Azure OpenAI<br/><b>GPT-4o</b><br/><i>answer generation</i>"]
 
-  T --> U["✅ Answer + Citations<br/><i>with source metadata</i>"]
+  P --> Q["Answer + Citations<br/><i>with source metadata</i>"]
 
-  U --> V["📎 Source Metadata<br/>Audio Title · Speaker<br/>Timestamps · Excerpt"]
+  Q --> R["Source Metadata<br/>Audio Title · Speaker<br/>Timestamps · Excerpt"]
 
-  V --> W["🔗 Answer with<br/>Clickable Evidence"]
-
-  %% ========== STYLING ==========
-  style A fill:#f9f,stroke:#333,stroke-width:2px
-  style C fill:#0078D4,color:#fff
-  style D fill:#FFA500,color:#fff
-  style E fill:#0078D4,color:#fff
-  style F fill:#0078D4,color:#fff
-  style G fill:#0078D4,color:#fff
-  style H fill:#FFA500,color:#fff
-  style I fill:#0078D4,color:#fff
-  style K fill:#0078D4,color:#fff
-  style L fill:#0078D4,color:#fff
-  style M fill:#0078D4,color:#fff
-  style N fill:#0078D4,color:#fff
-  style P fill:#f9f,stroke:#333,stroke-width:2px
-  style Q fill:#0078D4,color:#fff
-  style T fill:#0078D4,color:#fff
-  style U fill:#4CAF50,color:#fff
+  R --> S["Answer with<br/>Clickable Evidence"]
