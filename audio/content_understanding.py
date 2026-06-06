@@ -16,7 +16,7 @@ def _get_env(key: str) -> str:
 def _upload_to_blob(file_path: str) -> tuple[str, str, str]:
     conn_str = _get_env("AZURE_STORAGE_CONNECTION_STRING")
     container = _get_env("AZURE_STORAGE_CONTAINER")
-    blob_name = f"{uuid.uuid4()}{os.path.splitext(file_path)[1]}"
+    blob_name = os.path.basename(file_path)
 
     client = BlobServiceClient.from_connection_string(conn_str)
     container_client = client.get_container_client(container)
