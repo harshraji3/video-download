@@ -43,7 +43,7 @@ _HTTP = httpx.Client(timeout=httpx.Timeout(300.0, connect=30.0))
 def _start_analysis(audio_url: str) -> str:
     endpoint = _get_env("AZURE_CONTENT_UNDERSTANDING_ENDPOINT").rstrip("/")
     api_key = _get_env("AZURE_CONTENT_UNDERSTANDING_API_KEY")
-    analyzer_id = _get_env("AZURE_CONTENT_UNDERSTANDING_ANALYZER_ID")
+    analyzer_id = _get_env("AZURE_CONTENT_UNDERSTANDING_ANALYZER_ID_AUDIO")
 
     url = f"{endpoint}/contentunderstanding/analyzers/{analyzer_id}:analyze?api-version=2025-11-01"
     body = {

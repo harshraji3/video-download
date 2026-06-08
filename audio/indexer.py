@@ -201,7 +201,7 @@ def search(query: str, top_k: int = 5) -> list[dict]:
 
     results = search_client.search(
         search_text=query,
-        vector_queries=[VectorizedQuery(vector=q_emb, k_nearest_neighbors=top_k, fields="content_vector", kind="vector")],
+        vector_queries=[VectorizedQuery(vector=q_emb, k_nearest_neighbors=top_k, fields="content_vector")],
         select=["id", "audio_file_id", "content", "sentence_start", "sentence_end", "start_time", "end_time"],
         top=top_k,
     )
