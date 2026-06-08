@@ -9,4 +9,6 @@ nltk
 chromadb
 google-genai
 azure-storage-blob
+azure-search-documents
+azure-ai-inference
 openai

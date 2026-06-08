@@ -1,42 +1,114 @@
 from __future__ import annotations
 
 import os
-import uuid as uuid_pkg
 
-import chromadb
-from google import genai
+from azure.ai.inference import EmbeddingsClient
+from azure.core.credentials import AzureKeyCredential
+from azure.search.documents import SearchClient
+from azure.search.documents.indexes import SearchIndexClient
+from azure.search.documents.indexes.models import (
+    SearchIndex,
+    SearchField,
+    SearchFieldDataType,
+    SimpleField,
+    VectorSearch,
+    VectorSearchAlgorithmConfiguration,
+    HnswAlgorithmConfiguration,
+    HnswParameters,
+    VectorSearchProfile,
+)
 from audio.db import get_db
 
 CHUNK_SIZE = 3
 STRIDE = 2
-COLLECTION_NAME = "audio_chunks"
-AUDIO_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "audio_files")
-CHROMA_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "chroma_db")
+INDEX_NAME = "audio-chunks"
 
-_genai_client: genai.Client | None = None
-_chroma_client: chromadb.PersistentClient | None = None
+_embed_client: EmbeddingsClient | None = None
+_search_index_client: SearchIndexClient | None = None
 
 
-def _get_embedder() -> genai.Client:
-    global _genai_client
-    if _genai_client is None:
-        _genai_client = genai.Client(api_key=os.environ["GOOGLE_API_KEY"])
-    return _genai_client
+def _get_embed_client() -> EmbeddingsClient:
+    global _embed_client
+    if _embed_client is None:
+        _embed_client = EmbeddingsClient(
+            endpoint=os.environ.get("AZURE_FOUNDRY_ENDPOINT", "https://<placeholder>.inference.ai.azure.com"),
+            credential=AzureKeyCredential(os.environ.get("AZURE_FOUNDRY_API_KEY", "<placeholder>")),
+        )
+    return _embed_client
 
 
-def _get_chroma() -> chromadb.Collection:
-    global _chroma_client
-    if _chroma_client is None:
-        _chroma_client = chromadb.PersistentClient(path=CHROMA_PATH)
-    return _chroma_client.get_or_create_collection(COLLECTION_NAME)
+def _get_embedding_model() -> str:
+    return os.environ.get("AZURE_FOUNDRY_EMBEDDING_MODEL", "text-embedding-3-large")
+
+
+def _get_search_index_client() -> SearchIndexClient:
+    global _search_index_client
+    if _search_index_client is None:
+        endpoint = os.environ.get("AZURE_SEARCH_ENDPOINT", "https://<placeholder>.search.windows.net")
+        api_key = os.environ.get("AZURE_SEARCH_API_KEY", "<placeholder>")
+        _search_index_client = SearchIndexClient(endpoint, AzureKeyCredential(api_key))
+    return _search_index_client
+
+
+def _get_search_client() -> SearchClient:
+    endpoint = os.environ.get("AZURE_SEARCH_ENDPOINT", "https://<placeholder>.search.windows.net")
+    api_key = os.environ.get("AZURE_SEARCH_API_KEY", "<placeholder>")
+    return SearchClient(endpoint, INDEX_NAME, AzureKeyCredential(api_key))
+
+
+def _ensure_index() -> None:
+    client = _get_search_index_client()
+    try:
+        client.get_index(INDEX_NAME)
+        return
+    except Exception:
+        pass
+
+    fields = [
+        SimpleField(name="id", type=SearchFieldDataType.String, key=True),
+        SimpleField(name="audio_file_id", type=SearchFieldDataType.String, filterable=True),
+        SimpleField(name="content", type=SearchFieldDataType.String, searchable=True),
+        SimpleField(name="sentence_start", type=SearchFieldDataType.Int32),
+        SimpleField(name="sentence_end", type=SearchFieldDataType.Int32),
+        SimpleField(name="start_time", type=SearchFieldDataType.Double),
+        SimpleField(name="end_time", type=SearchFieldDataType.Double),
+        SearchField(
+            name="content_vector",
+            type=SearchFieldDataType.Collection(SearchFieldDataType.Single),
+            searchable=True,
+            vector_search_dimensions=3072,
+            vector_search_profile_name="hnsw-profile",
+        ),
+    ]
+
+    vector_search = VectorSearch(
+        algorithms=[
+            HnswAlgorithmConfiguration(
+                name="hnsw-config",
+                parameters=HnswParameters(
+                    m=4,
+                    ef_construction=400,
+                    ef_search=500,
+                    metric="cosine",
+                ),
+            )
+        ],
+        profiles=[
+            VectorSearchProfile(
+                name="hnsw-profile",
+                algorithm_configuration_name="hnsw-config",
+            )
+        ],
+    )
+
+    index = SearchIndex(name=INDEX_NAME, fields=fields, vector_search=vector_search)
+    client.create_index(index)
 
 
 def embed_texts(texts: list[str]) -> list[list[float]]:
-    result = _get_embedder().models.embed_content(
-        model="models/gemini-embedding-001",
-        contents=texts,
-    )
-    return [e.values for e in result.embeddings]
+    model = _get_embedding_model()
+    resp = _get_embed_client().embed(input=texts, model=model)
+    return [e.embedding for e in resp.data]
 
 
 def embed_text(text: str) -> list[float]:
@@ -95,54 +167,49 @@ def index_audio(audio_file_id: str) -> int:
     inserted = db.table("audio_chunks").insert(chunk_rows).execute()
     inserted_chunks = inserted.data
 
-    chroma_ids: list[str] = []
-    chroma_embeds: list[list[float]] = []
-    chroma_metas: list[dict] = []
+    _ensure_index()
+    search_client = _get_search_client()
 
+    docs = []
     for chunk_row, chunk_data, emb in zip(inserted_chunks, chunks, embeddings):
         chunk_id = chunk_row["id"]
-        chroma_ids.append(f"audio_chunk_{chunk_id}")
-        chroma_embeds.append(emb)
-        chroma_metas.append({
-            "chunk_id": chunk_id,
+        docs.append({
+            "id": f"audio_chunk_{chunk_id}",
             "audio_file_id": audio_file_id,
+            "content": chunk_data["content"],
             "sentence_start": chunk_data["sentence_start"],
             "sentence_end": chunk_data["sentence_end"],
-            "content": chunk_data["content"],
             "start_time": chunk_data["start_time"],
             "end_time": chunk_data["end_time"],
+            "content_vector": emb,
         })
 
         db.table("audio_chunks").update({"embedding_id": f"audio_chunk_{chunk_id}"}).eq(
             "id", chunk_id
         ).execute()
 
-    collection = _get_chroma()
-    collection.add(
-        ids=chroma_ids,
-        embeddings=chroma_embeds,
-        metadatas=chroma_metas,
-    )
-
+    search_client.upload_documents(docs)
     return len(chunks)
 
 
 def search(query: str, top_k: int = 5) -> list[dict]:
     q_emb = embed_text(query)
-    collection = _get_chroma()
-    results = collection.query(
-        query_embeddings=[q_emb],
-        n_results=top_k,
+    search_client = _get_search_client()
+
+    results = search_client.search(
+        search_text=query,
+        vector_queries=[{"vector": q_emb, "k": top_k, "fields": "content_vector"}],
+        select=["id", "audio_file_id", "content", "sentence_start", "sentence_end", "start_time", "end_time"],
+        top=top_k,
     )
 
     evidence_blocks = []
     db = get_db()
 
-    for i in range(len(results["ids"][0])):
-        meta = results["metadatas"][0][i]
-        chunk_id = meta["chunk_id"]
-        audio_file_id = meta["audio_file_id"]
-        distance = results["distances"][0][i]
+    for r in results:
+        chunk_id = r["id"]
+        audio_file_id = r["audio_file_id"]
+        score = r["@search.score"]
 
         audio = (
             db.table("audio_files")
@@ -159,8 +226,8 @@ def search(query: str, top_k: int = 5) -> list[dict]:
             db.table("transcript_sentences")
             .select("id, content, doc_idx, start_time, end_time")
             .eq("audio_file_id", audio_file_id)
-            .gte("doc_idx", meta["sentence_start"])
-            .lte("doc_idx", meta["sentence_end"])
+            .gte("doc_idx", r["sentence_start"])
+            .lte("doc_idx", r["sentence_end"])
             .order("doc_idx")
             .execute()
         )
@@ -169,8 +236,8 @@ def search(query: str, top_k: int = 5) -> list[dict]:
             db.table("transcript_sentences")
             .select("id, content, doc_idx, start_time, end_time")
             .eq("audio_file_id", audio_file_id)
-            .gte("doc_idx", max(0, meta["sentence_start"] - 2))
-            .lte("doc_idx", meta["sentence_end"] + 2)
+            .gte("doc_idx", max(0, r["sentence_start"] - 2))
+            .lte("doc_idx", r["sentence_end"] + 2)
             .order("doc_idx")
             .execute()
         )
@@ -181,12 +248,12 @@ def search(query: str, top_k: int = 5) -> list[dict]:
             "audio_file_id": audio_file_id,
             "audio_title": audio_row.get("title"),
             "speaker": audio_row.get("speaker"),
-            "content": meta["content"],
+            "content": r["content"],
             "sentences": sentences.data,
             "context_window": context_sentences.data,
-            "start_time": meta["start_time"],
-            "end_time": meta["end_time"],
-            "score": 1.0 - distance,
+            "start_time": r["start_time"],
+            "end_time": r["end_time"],
+            "score": score,
         })
 
     return evidence_blocks
