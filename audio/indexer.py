@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import os
 
-from azure.ai.inference import EmbeddingsClient
+from openai import OpenAI
 from azure.core.credentials import AzureKeyCredential
 from azure.search.documents import SearchClient
+from azure.search.documents.models import VectorizedQuery
 from azure.search.documents.indexes import SearchIndexClient
 from azure.search.documents.indexes.models import (
     SearchIndex,
@@ -21,18 +22,19 @@ from audio.db import get_db
 
 CHUNK_SIZE = 3
 STRIDE = 2
-INDEX_NAME = "audio-chunks"
+INDEX_NAME = "audio-chunks-v2"
 
-_embed_client: EmbeddingsClient | None = None
+_embed_client: OpenAI | None = None
 _search_index_client: SearchIndexClient | None = None
 
 
-def _get_embed_client() -> EmbeddingsClient:
+def _get_embed_client() -> OpenAI:
     global _embed_client
     if _embed_client is None:
-        _embed_client = EmbeddingsClient(
-            endpoint=os.environ.get("AZURE_FOUNDRY_ENDPOINT", "https://<placeholder>.inference.ai.azure.com"),
-            credential=AzureKeyCredential(os.environ.get("AZURE_FOUNDRY_API_KEY", "<placeholder>")),
+        base = os.environ.get("AZURE_FOUNDRY_ENDPOINT", "https://<placeholder>").rstrip("/")
+        _embed_client = OpenAI(
+            api_key=os.environ.get("AZURE_FOUNDRY_API_KEY", "<placeholder>"),
+            base_url=f"{base}/openai/v1",
         )
     return _embed_client
 
@@ -67,7 +69,7 @@ def _ensure_index() -> None:
     fields = [
         SimpleField(name="id", type=SearchFieldDataType.String, key=True),
         SimpleField(name="audio_file_id", type=SearchFieldDataType.String, filterable=True),
-        SimpleField(name="content", type=SearchFieldDataType.String, searchable=True),
+        SearchField(name="content", type=SearchFieldDataType.String, searchable=True, filterable=False),
         SimpleField(name="sentence_start", type=SearchFieldDataType.Int32),
         SimpleField(name="sentence_end", type=SearchFieldDataType.Int32),
         SimpleField(name="start_time", type=SearchFieldDataType.Double),
@@ -107,7 +109,7 @@ def _ensure_index() -> None:
 
 def embed_texts(texts: list[str]) -> list[list[float]]:
     model = _get_embedding_model()
-    resp = _get_embed_client().embed(input=texts, model=model)
+    resp = _get_embed_client().embeddings.create(input=texts, model=model)
     return [e.embedding for e in resp.data]
 
 
@@ -194,11 +196,12 @@ def index_audio(audio_file_id: str) -> int:
 
 def search(query: str, top_k: int = 5) -> list[dict]:
     q_emb = embed_text(query)
+    _ensure_index()
     search_client = _get_search_client()
 
     results = search_client.search(
         search_text=query,
-        vector_queries=[{"vector": q_emb, "k": top_k, "fields": "content_vector"}],
+        vector_queries=[VectorizedQuery(vector=q_emb, k_nearest_neighbors=top_k, fields="content_vector", kind="vector")],
         select=["id", "audio_file_id", "content", "sentence_start", "sentence_end", "start_time", "end_time"],
         top=top_k,
     )

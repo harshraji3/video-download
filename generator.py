@@ -1,18 +1,18 @@
 import os
 import json
 import re
-from openai import AzureOpenAI
+from openai import OpenAI
 
-_client: AzureOpenAI | None = None
+_client: OpenAI | None = None
 
 
-def _get_client() -> AzureOpenAI:
+def _get_client() -> OpenAI:
     global _client
     if _client is None:
-        _client = AzureOpenAI(
+        base = os.environ.get("AZURE_OPENAI_ENDPOINT", "https://<placeholder>").rstrip("/")
+        _client = OpenAI(
             api_key=os.environ.get("AZURE_OPENAI_API_KEY", "<placeholder>"),
-            api_version=os.environ.get("AZURE_OPENAI_API_VERSION", "2025-01-01-preview"),
-            azure_endpoint=os.environ.get("AZURE_OPENAI_ENDPOINT", "https://<placeholder>.openai.azure.com"),
+            base_url=f"{base}/openai/v1",
         )
     return _client
 
