@@ -14,11 +14,11 @@ flowchart TD
 
   F --> G["Create Overlapping Chunks<br/><i>sliding window</i>"]
 
-  G --> H["Azure OpenAI<br/><b>text-embedding-ada-002</b><br/><i>generate chunk embeddings</i>"]
+  G --> H["Azure AI Foundry Models<br/><b>text-embedding-3-large</b><br/><i>generate chunk embeddings</i>"]
 
   H --> I["Azure AI Search<br/><i>hybrid + vector index</i>"]
 
-  C --> J[("PostgreSQL<br/><i>Supabase</i>")]
+  C --> J[("PostgreSQL Database")]
   F --> J
   G --> J
   I --> J
@@ -26,13 +26,13 @@ flowchart TD
   J --> K["Tables: audio_files,<br/>transcripts, sentences,<br/>chunks"]
 
   %% ========== RETRIEVAL ==========
-  L["💬 User Query"] --> M["Azure OpenAI<br/><b>text-embedding-ada-002</b><br/><i>embed query</i>"]
+  L["💬 User Query"] --> M["Azure AI Foundry Models<br/><b>text-embedding-3-large</b><br/><i>embed query</i>"]
 
   M --> I
 
-  I --> N["Top-K matching chunks<br/><i>hybrid search</i>"]
+  I --> N["Top-K Matching Chunks<br/><i>hybrid + vector search</i>"]
 
-  N --> O["Fetch full context<br/>from PostgreSQL"]
+  N --> O["Fetch Full Context<br/>from PostgreSQL"]
 
   J --> O
 

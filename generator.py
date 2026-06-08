@@ -1,16 +1,24 @@
 import os
 import json
 import re
-from google import genai
+from openai import AzureOpenAI
 
-_client: genai.Client | None = None
+_client: AzureOpenAI | None = None
 
 
-def _get_client() -> genai.Client:
+def _get_client() -> AzureOpenAI:
     global _client
     if _client is None:
-        _client = genai.Client(api_key=os.environ["GOOGLE_API_KEY"])
+        _client = AzureOpenAI(
+            api_key=os.environ.get("AZURE_OPENAI_API_KEY", "<placeholder>"),
+            api_version=os.environ.get("AZURE_OPENAI_API_VERSION", "2025-01-01-preview"),
+            azure_endpoint=os.environ.get("AZURE_OPENAI_ENDPOINT", "https://<placeholder>.openai.azure.com"),
+        )
     return _client
+
+
+def _get_deployment() -> str:
+    return os.environ.get("AZURE_OPENAI_DEPLOYMENT", "gpt-4o")
 
 
 def generate_answer(query: str, evidence_blocks: list[dict]) -> dict:
@@ -76,15 +84,13 @@ CONTEXT:
 
 USER QUESTION: {query}"""
 
-    response = _get_client().models.generate_content(
-        model="models/gemma-4-31b-it",
-        contents=prompt,
-        config={
-            "response_mime_type": "application/json",
-        },
+    response = _get_client().chat.completions.create(
+        model=_get_deployment(),
+        messages=[{"role": "user", "content": prompt}],
+        response_format={"type": "json_object"},
     )
 
-    raw = response.text.strip()
+    raw = response.choices[0].message.content.strip()
     raw = re.sub(r"^```(?:json)?\s*", "", raw)
     raw = re.sub(r"\s*```$", "", raw)
 
