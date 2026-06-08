@@ -6,11 +6,11 @@ _META_KEYS = [
 ]
 
 
-def transcribe_audio(file_path: str) -> dict:
-    audio_url, container, blob_name, conn_str = services.upload_to_blob(file_path)
+def transcribe_video(file_path: str) -> dict:
+    video_url, container, blob_name, conn_str = services.upload_to_blob(file_path)
     _, op_url = services.start_analysis(
-        audio_url,
-        services._get_env("AZURE_CONTENT_UNDERSTANDING_ANALYZER_ID_AUDIO"),
+        video_url,
+        services._get_env("AZURE_CONTENT_UNDERSTANDING_ANALYZER_ID_VIDEO"),
     )
     result = services.wait_for_analysis(op_url)
     parsed = _parse_result(result)
@@ -46,6 +46,8 @@ def _parse_result(result: dict) -> dict:
         v = fields.get(key, {})
         return v.get("valueString", "") if isinstance(v, dict) else ""
 
+    keyframe_text = _f("keyframe_text") or None
+
     return {
         "content": full_text,
         "segments": segments,
@@ -60,4 +62,9 @@ def _parse_result(result: dict) -> dict:
         "cancer_types": services.parse_csv(_f("cancer")),
         "biomarkers": services.parse_csv(_f("biomaker_name")),
         "company_name": _f("company_name") or None,
+        "keyframe_text": keyframe_text,
+        "keyframe_times": content.get("KeyFrameTimesMs", []),
+        "camera_shot_times": content.get("cameraShotTimesMs", []),
+        "width": content.get("width"),
+        "height": content.get("height"),
     }

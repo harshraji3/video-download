@@ -99,7 +99,7 @@ create table audio_files (
 );
 
 -- ============================================================
--- Transcripts
+-- Audio Transcripts
 -- ============================================================
 create table transcripts (
   id              uuid primary key default gen_random_uuid(),
@@ -113,7 +113,7 @@ create table transcripts (
 create index idx_transcripts_audio_file_id on transcripts (audio_file_id);
 
 -- ============================================================
--- Transcript Sentences
+-- Audio Transcript Sentences
 -- ============================================================
 create table transcript_sentences (
   id              uuid primary key default gen_random_uuid(),
@@ -153,6 +153,92 @@ create table audio_chunks (
 create index idx_audio_chunks_audio_file_id on audio_chunks (audio_file_id);
 
 -- ============================================================
+-- Video Files
+-- ============================================================
+create table video_files (
+  id              uuid primary key default gen_random_uuid(),
+  filename        text not null,
+  file_path       text not null,
+  title           text,
+  speaker         text,
+  speaker_names   text[] default '{}',
+  speaker_role    text,
+  organization    text,
+  short_summary   text,
+  language        text,
+  speaker_count   int,
+  theme           text,
+  keywords        text[] default '{}',
+  drug_names      text[] default '{}',
+  cancer_types    text[] default '{}',
+  biomarkers      text[] default '{}',
+  duration_seconds numeric,
+  file_size_bytes int,
+  mime_type       text not null default 'video/mp4',
+  width           int,
+  height          int,
+  keyframe_times  numeric[] default '{}',
+  keyframe_text   text,
+  camera_shot_times numeric[] default '{}',
+  metadata        jsonb default '{}',
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now()
+);
+
+-- ============================================================
+-- Video Transcripts
+-- ============================================================
+create table video_transcripts (
+  id              uuid primary key default gen_random_uuid(),
+  video_file_id   uuid not null references video_files(id) on delete cascade,
+  content         text not null,
+  segments        jsonb not null default '[]',
+  model_used      text not null default 'azure_content_understanding',
+  created_at      timestamptz not null default now()
+);
+
+create index idx_vt_video_file_id on video_transcripts (video_file_id);
+
+-- ============================================================
+-- Video Transcript Sentences
+-- ============================================================
+create table video_transcript_sentences (
+  id              uuid primary key default gen_random_uuid(),
+  transcript_id   uuid not null references video_transcripts(id) on delete cascade,
+  video_file_id   uuid not null references video_files(id) on delete cascade,
+  doc_idx         int not null,
+  idx             int not null,
+  content         text not null,
+  start_time      numeric not null,
+  end_time        numeric not null,
+  keyframe_text   text,
+  created_at      timestamptz not null default now()
+);
+
+create index idx_vts_video_file_id on video_transcript_sentences (video_file_id);
+create index idx_vts_video_doc on video_transcript_sentences (video_file_id, doc_idx);
+create unique index idx_vts_transcript_doc on video_transcript_sentences (transcript_id, doc_idx);
+
+-- ============================================================
+-- Video Chunks
+-- ============================================================
+create table video_chunks (
+  id                uuid primary key default gen_random_uuid(),
+  video_file_id     uuid not null references video_files(id) on delete cascade,
+  content           text not null,
+  sentence_start    int not null,
+  sentence_end      int not null,
+  sentence_ids      uuid[] not null,
+  start_time        numeric not null,
+  end_time          numeric not null,
+  has_keyframe_text boolean not null default false,
+  embedding_id      text,
+  created_at        timestamptz not null default now()
+);
+
+create index idx_video_chunks_video_file_id on video_chunks (video_file_id);
+
+-- ============================================================
 -- Updated-at trigger
 -- ============================================================
 create or replace function trigger_set_updated_at()
@@ -173,10 +259,7 @@ create trigger set_updated_at_audio
   before update on audio_files
   for each row execute function trigger_set_updated_at();
 
--- ============================================================
--- Migration: Add Content Understanding columns
--- Run in Supabase SQL editor if upgrading an existing database
--- ============================================================
--- alter table audio_files add column if not exists drug_names text[] default '{}';
--- alter table audio_files add column if not exists cancer_types text[] default '{}';
--- alter table audio_files add column if not exists biomarkers text[] default '{}';
+drop trigger if exists set_updated_at_video on video_files;
+create trigger set_updated_at_video
+  before update on video_files
+  for each row execute function trigger_set_updated_at();

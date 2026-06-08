@@ -37,6 +37,14 @@ def generate_answer(query: str, evidence_blocks: list[dict]) -> dict:
             if block.get("speaker"):
                 lines.append(f"Speaker: {block['speaker']}")
             lines.append(f"Timestamp: {block.get('start_time', '?')}s - {block.get('end_time', '?')}s")
+        elif source_type == "video":
+            lines.append(f"Type: Video Transcript")
+            lines.append(f"Title: {block.get('video_title', 'N/A')}")
+            if block.get("speaker"):
+                lines.append(f"Speaker: {block['speaker']}")
+            lines.append(f"Timestamp: {block.get('start_time', '?')}s - {block.get('end_time', '?')}s")
+            if block.get("has_keyframe_text"):
+                lines.append(f"Slide Text Available: Yes")
 
         lines.append(f"Relevant Excerpt: {block['content']}")
 

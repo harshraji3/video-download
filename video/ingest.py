@@ -1,12 +1,10 @@
 import os
-from audio.db import get_db
-from audio.content_understanding import transcribe_audio
-from audio.indexer import index_audio
-
-AUDIO_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "audio_files")
+from video.db import get_db
+from video.content_understanding import transcribe_video
+from video.indexer import index_video
 
 
-def ingest_audio(
+def ingest_video(
     file_path: str,
     title: str | None = None,
     speaker: str | None = None,
@@ -21,7 +19,7 @@ def ingest_audio(
     filename = os.path.basename(file_path)
     file_size = os.path.getsize(file_path)
 
-    cu_result = transcribe_audio(file_path)
+    cu_result = transcribe_video(file_path)
 
     if speaker_count is None:
         speaker_count = cu_result.get("speaker_count")
@@ -44,8 +42,8 @@ def ingest_audio(
     if title is None:
         title = os.path.splitext(filename)[0]
 
-    audio = (
-        db.table("audio_files")
+    video = (
+        db.table("video_files")
         .insert({
             "filename": filename,
             "file_path": file_path,
@@ -63,18 +61,23 @@ def ingest_audio(
             "cancer_types": cu_result.get("cancer_types"),
             "biomarkers": cu_result.get("biomarkers"),
             "file_size_bytes": file_size,
+            "width": cu_result.get("width"),
+            "height": cu_result.get("height"),
+            "keyframe_times": cu_result.get("keyframe_times", []),
+            "keyframe_text": cu_result.get("keyframe_text"),
+            "camera_shot_times": cu_result.get("camera_shot_times", []),
         })
         .execute()
     )
-    if not audio.data:
-        raise RuntimeError("Failed to insert audio file")
-    audio_row = audio.data[0]
-    audio_id = audio_row["id"]
+    if not video.data:
+        raise RuntimeError("Failed to insert video file")
+    video_row = video.data[0]
+    video_id = video_row["id"]
 
     transcript = (
-        db.table("transcripts")
+        db.table("video_transcripts")
         .insert({
-            "audio_file_id": audio_id,
+            "video_file_id": video_id,
             "content": cu_result["content"],
             "segments": cu_result["segments"],
             "model_used": "azure_content_understanding",
@@ -82,19 +85,19 @@ def ingest_audio(
         .execute()
     )
     if not transcript.data:
-        raise RuntimeError("Failed to insert transcript")
+        raise RuntimeError("Failed to insert video transcript")
     transcript_row = transcript.data[0]
     transcript_id = transcript_row["id"]
 
     duration = cu_result.get("duration", 0)
-    db.table("audio_files").update({"duration_seconds": round(duration, 2)}).eq(
-        "id", audio_id
+    db.table("video_files").update({"duration_seconds": round(duration, 2)}).eq(
+        "id", video_id
     ).execute()
 
     sentence_rows = [
         {
             "transcript_id": transcript_id,
-            "audio_file_id": audio_id,
+            "video_file_id": video_id,
             "doc_idx": idx,
             "idx": idx,
             "content": s["text"],
@@ -106,11 +109,11 @@ def ingest_audio(
 
     sentence_count = 0
     if sentence_rows:
-        db.table("transcript_sentences").insert(sentence_rows).execute()
+        db.table("video_transcript_sentences").insert(sentence_rows).execute()
         sentence_count = len(sentence_rows)
 
-    chunk_count = index_audio(audio_id)
+    chunk_count = index_video(video_id)
 
-    audio_row["transcript_sentence_count"] = sentence_count
-    audio_row["chunk_count"] = chunk_count
-    return audio_row
+    video_row["transcript_sentence_count"] = sentence_count
+    video_row["chunk_count"] = chunk_count
+    return video_row

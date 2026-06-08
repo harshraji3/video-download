@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from audio.db import get_db
+from video.db import get_db
 from services import (
     create_chunks,
     embed_texts,
@@ -12,13 +12,25 @@ from services import (
 )
 
 
-def index_audio(audio_file_id: str) -> int:
+def index_video(video_file_id: str) -> int:
     db = get_db()
 
+    # get video metadata including keyframe text
+    video = (
+        db.table("video_files")
+        .select("id, keyframe_text, keyframe_times")
+        .eq("id", video_file_id)
+        .limit(1)
+        .execute()
+    )
+    if not video.data:
+        raise RuntimeError(f"Video file {video_file_id} not found")
+    video_row = video.data[0]
+
     rows = (
-        db.table("transcript_sentences")
-        .select("id, content, doc_idx, start_time, end_time")
-        .eq("audio_file_id", audio_file_id)
+        db.table("video_transcript_sentences")
+        .select("id, content, doc_idx, start_time, end_time, keyframe_text")
+        .eq("video_file_id", video_file_id)
         .order("doc_idx")
         .execute()
     )
@@ -27,23 +39,37 @@ def index_audio(audio_file_id: str) -> int:
         return 0
 
     chunks = create_chunks(sentences)
+
+    # append keyframe_text to each chunk's content for searchability
+    global_kf_text = video_row.get("keyframe_text") or ""
+    for c in chunks:
+        has_kf = any(
+            s.get("keyframe_text") for s in sentences[c["sentence_start"] : c["sentence_end"] + 1]
+        )
+        if has_kf and global_kf_text:
+            c["content"] = c["content"] + " " + global_kf_text
+            c["has_keyframe_text"] = True
+        else:
+            c["has_keyframe_text"] = False
+
     chunk_texts = [c["content"] for c in chunks]
     embeddings = embed_texts(chunk_texts)
 
     chunk_rows = [
         {
-            "audio_file_id": audio_file_id,
+            "video_file_id": video_file_id,
             "content": c["content"],
             "sentence_start": c["sentence_start"],
             "sentence_end": c["sentence_end"],
             "sentence_ids": c["sentence_ids"],
             "start_time": c["start_time"],
             "end_time": c["end_time"],
+            "has_keyframe_text": c.get("has_keyframe_text", False),
         }
         for c in chunks
     ]
 
-    inserted = db.table("audio_chunks").insert(chunk_rows).execute()
+    inserted = db.table("video_chunks").insert(chunk_rows).execute()
     inserted_chunks = inserted.data
 
     ensure_index()
@@ -51,19 +77,19 @@ def index_audio(audio_file_id: str) -> int:
     for chunk_row, chunk_data, emb in zip(inserted_chunks, chunks, embeddings):
         chunk_id = chunk_row["id"]
         docs.append({
-            "id": f"audio_chunk_{chunk_id}",
-            "source_type": "audio",
-            "source_id": audio_file_id,
+            "id": f"video_chunk_{chunk_id}",
+            "source_type": "video",
+            "source_id": video_file_id,
             "content": chunk_data["content"],
             "sentence_start": chunk_data["sentence_start"],
             "sentence_end": chunk_data["sentence_end"],
             "start_time": chunk_data["start_time"],
             "end_time": chunk_data["end_time"],
-            "has_keyframe_text": False,
+            "has_keyframe_text": chunk_data.get("has_keyframe_text", False),
             "content_vector": emb,
         })
 
-        db.table("audio_chunks").update({"embedding_id": f"audio_chunk_{chunk_id}"}).eq(
+        db.table("video_chunks").update({"embedding_id": f"video_chunk_{chunk_id}"}).eq(
             "id", chunk_id
         ).execute()
 
@@ -72,7 +98,7 @@ def index_audio(audio_file_id: str) -> int:
 
 
 def search(query: str, top_k: int = 5) -> list[dict]:
-    raw = base_search(query, top_k=top_k, source_type="audio")
+    raw = base_search(query, top_k=top_k, source_type="video")
     if not raw:
         return []
 
@@ -82,21 +108,21 @@ def search(query: str, top_k: int = 5) -> list[dict]:
     for r in raw:
         source_id = r["source_id"]
 
-        audio = (
-            db.table("audio_files")
-            .select("id, filename, title, speaker")
+        video = (
+            db.table("video_files")
+            .select("id, filename, title, speaker, keyframe_text")
             .eq("id", source_id)
             .limit(1)
             .execute()
         )
-        if not audio.data:
+        if not video.data:
             continue
-        audio_row = audio.data[0]
+        video_row = video.data[0]
 
         sentences = (
-            db.table("transcript_sentences")
-            .select("id, content, doc_idx, start_time, end_time")
-            .eq("audio_file_id", source_id)
+            db.table("video_transcript_sentences")
+            .select("id, content, doc_idx, start_time, end_time, keyframe_text")
+            .eq("video_file_id", source_id)
             .gte("doc_idx", r["sentence_start"])
             .lte("doc_idx", r["sentence_end"])
             .order("doc_idx")
@@ -104,9 +130,9 @@ def search(query: str, top_k: int = 5) -> list[dict]:
         )
 
         context_sentences = (
-            db.table("transcript_sentences")
-            .select("id, content, doc_idx, start_time, end_time")
-            .eq("audio_file_id", source_id)
+            db.table("video_transcript_sentences")
+            .select("id, content, doc_idx, start_time, end_time, keyframe_text")
+            .eq("video_file_id", source_id)
             .gte("doc_idx", max(0, r["sentence_start"] - 2))
             .lte("doc_idx", r["sentence_end"] + 2)
             .order("doc_idx")
@@ -115,15 +141,17 @@ def search(query: str, top_k: int = 5) -> list[dict]:
 
         evidence_blocks.append({
             "chunk_id": r["chunk_id"],
-            "source_type": "audio",
-            "audio_file_id": source_id,
-            "audio_title": audio_row.get("title"),
-            "speaker": audio_row.get("speaker"),
+            "source_type": "video",
+            "video_file_id": source_id,
+            "video_title": video_row.get("title"),
+            "speaker": video_row.get("speaker"),
             "content": r["content"],
             "sentences": sentences.data,
             "context_window": context_sentences.data,
             "start_time": r["start_time"],
             "end_time": r["end_time"],
+            "has_keyframe_text": r.get("has_keyframe_text", False),
+            "keyframe_text": video_row.get("keyframe_text"),
             "score": r["score"],
         })
 

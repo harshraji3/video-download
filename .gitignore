@@ -5,3 +5,6 @@ documents/__pycache__
 audio_files
 chroma_db
 .vscode
+video/__pycache__
+audio/__pycache__
+video/__init__.py
