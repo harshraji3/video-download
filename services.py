@@ -53,7 +53,19 @@ def upload_bytes_to_blob(data: bytes, blob_name: str) -> tuple[str, str, str, st
         pass
 
     blob_client = container_client.get_blob_client(blob_name)
-    blob_client.upload_blob(data, overwrite=True, content_settings=ContentSettings(content_disposition="inline"))
+
+    ext = os.path.splitext(blob_name)[1].lower()
+    content_type_map = {
+        ".mp4": "video/mp4", ".mov": "video/quicktime", ".avi": "video/x-msvideo",
+        ".webm": "video/webm", ".mkv": "video/x-matroska",
+        ".mp3": "audio/mpeg", ".wav": "audio/wav", ".ogg": "audio/ogg", ".m4a": "audio/mp4",
+    }
+    content_type = content_type_map.get(ext, "application/octet-stream")
+
+    blob_client.upload_blob(
+        data, overwrite=True,
+        content_settings=ContentSettings(content_disposition="inline", content_type=content_type),
+    )
 
     parts = dict(p.split("=", 1) for p in conn_str.split(";") if "=" in p)
     sas_token = generate_blob_sas(

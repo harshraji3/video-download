@@ -1,4 +1,5 @@
 import os
+import html
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.responses import HTMLResponse
 from dotenv import load_dotenv
@@ -144,25 +145,41 @@ async def query(req: QueryRequest):
 
 @app.get("/play")
 async def play_video(url: str, t: float = 0):
+    safe_url = html.escape(url).replace(" ", "%20")
+    content_type = "video/mp4"
+    if ".wav" in url or ".mp3" in url:
+        content_type = "audio/mpeg"
+
     html = f"""<!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Video Player</title>
+<title>Player</title>
 <style>
   * {{ margin: 0; padding: 0; box-sizing: border-box; }}
   body {{ background: #000; display: flex; justify-content: center; align-items: center; height: 100vh; }}
-  video {{ max-width: 100vw; max-height: 100vh; }}
 </style>
 </head>
 <body>
-<video id="v" controls autoplay>
-  <source src="{url}" type="video/mp4">
+<video id="v" controls preload="auto" style="max-width:100vw;max-height:100vh">
+  <source src="{safe_url}" type="{content_type}">
 </video>
 <script>
-  document.getElementById("v").addEventListener("loadedmetadata", function() {{
-    this.currentTime = {t};
-  }});
+  (function() {{
+    var v = document.getElementById("v");
+    var target = {t};
+    var retries = 0;
+    function seek() {{
+      if (v.readyState >= 1) {{
+        v.currentTime = target;
+        v.play();
+      }} else if (retries < 50) {{
+        retries++;
+        setTimeout(seek, 100);
+      }}
+    }}
+    seek();
+  }})();
 </script>
 </body>
 </html>"""
