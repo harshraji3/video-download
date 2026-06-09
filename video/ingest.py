@@ -1,11 +1,11 @@
-import os
 from video.db import get_db
 from video.content_understanding import transcribe_video
 from video.indexer import index_video
 
 
 def ingest_video(
-    file_path: str,
+    data: bytes,
+    filename: str,
     title: str | None = None,
     speaker: str | None = None,
     speaker_count: int | None = None,
@@ -16,10 +16,9 @@ def ingest_video(
 ) -> dict:
     db = get_db()
 
-    filename = os.path.basename(file_path)
-    file_size = os.path.getsize(file_path)
+    file_size = len(data)
 
-    cu_result = transcribe_video(file_path)
+    cu_result = transcribe_video(data, filename)
 
     if speaker_count is None:
         speaker_count = cu_result.get("speaker_count")
@@ -46,7 +45,7 @@ def ingest_video(
         db.table("video_files")
         .insert({
             "filename": filename,
-            "file_path": file_path,
+            "file_path": filename,
             "title": title,
             "speaker": speaker,
             "speaker_names": resolved_speaker_names,
@@ -66,6 +65,7 @@ def ingest_video(
             "keyframe_times": cu_result.get("keyframe_times", []),
             "keyframe_text": cu_result.get("keyframe_text"),
             "camera_shot_times": cu_result.get("camera_shot_times", []),
+            "metadata": {"blob_url": cu_result.get("blob_url")},
         })
         .execute()
     )

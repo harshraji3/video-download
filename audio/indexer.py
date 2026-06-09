@@ -48,6 +48,12 @@ def index_audio(audio_file_id: str) -> int:
 
     ensure_index()
     docs = []
+    audio_row = db.table("audio_files").select("metadata").eq("id", audio_file_id).limit(1).execute()
+    file_url = None
+    if audio_row.data:
+        meta = audio_row.data[0].get("metadata") or {}
+        file_url = meta.get("blob_url") if isinstance(meta, dict) else None
+
     for chunk_row, chunk_data, emb in zip(inserted_chunks, chunks, embeddings):
         chunk_id = chunk_row["id"]
         docs.append({
@@ -60,6 +66,7 @@ def index_audio(audio_file_id: str) -> int:
             "start_time": chunk_data["start_time"],
             "end_time": chunk_data["end_time"],
             "has_keyframe_text": False,
+            "file_url": file_url,
             "content_vector": emb,
         })
 
@@ -119,6 +126,8 @@ def search(query: str, top_k: int = 5) -> list[dict]:
             "audio_file_id": source_id,
             "audio_title": audio_row.get("title"),
             "speaker": audio_row.get("speaker"),
+            "file_url": r.get("file_url"),
+            "file_url_ts": f"{r.get('file_url')}#t={r['start_time']}" if r.get("file_url") and r.get("start_time") is not None else None,
             "content": r["content"],
             "sentences": sentences.data,
             "context_window": context_sentences.data,

@@ -3,11 +3,6 @@ uvicorn
 httpx
 supabase
 python-dotenv
-beautifulsoup4
-lxml
-nltk
-chromadb
-google-genai
 azure-storage-blob
 azure-search-documents
 azure-ai-inference

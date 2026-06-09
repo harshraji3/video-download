@@ -37,6 +37,8 @@ def generate_answer(query: str, evidence_blocks: list[dict]) -> dict:
             if block.get("speaker"):
                 lines.append(f"Speaker: {block['speaker']}")
             lines.append(f"Timestamp: {block.get('start_time', '?')}s - {block.get('end_time', '?')}s")
+            if block.get("file_url"):
+                lines.append(f"File URL: {block['file_url']}")
         elif source_type == "video":
             lines.append(f"Type: Video Transcript")
             lines.append(f"Title: {block.get('video_title', 'N/A')}")
@@ -45,6 +47,10 @@ def generate_answer(query: str, evidence_blocks: list[dict]) -> dict:
             lines.append(f"Timestamp: {block.get('start_time', '?')}s - {block.get('end_time', '?')}s")
             if block.get("has_keyframe_text"):
                 lines.append(f"Slide Text Available: Yes")
+            if block.get("file_url"):
+                lines.append(f"File URL: {block['file_url']}")
+            if block.get("file_url_ts"):
+                lines.append(f"Timestamped File URL: {block['file_url_ts']}")
 
         lines.append(f"Relevant Excerpt: {block['content']}")
 
@@ -63,7 +69,7 @@ def generate_answer(query: str, evidence_blocks: list[dict]) -> dict:
 
     prompt = f"""You are an evidence-based answer generator. Answer the user's question using ONLY the provided sources below. If the evidence is insufficient, say so.
 
-For EVERY claim in your answer, cite the exact source number (Source 1, Source 2, etc.) and include the precise location (URL for web articles, timestamp range for audio).
+For EVERY claim in your answer, cite the exact source number (Source 1, Source 2, etc.) and include the precise location (URL for web articles, File URL for audio/video, timestamp range).
 
 IMPORTANT: start_time and end_time must be numbers (e.g., 0.0, 14.64), NOT strings. Do NOT include "s" or "seconds" suffix.
 
@@ -80,7 +86,9 @@ Return ONLY a JSON object with this exact structure (no markdown, no code fences
       "speaker": null,
       "start_time": null,
       "end_time": null,
-      "supporting_text": "exact excerpt from the source"
+      "supporting_text": "exact excerpt from the source",
+      "file_url": null,
+      "file_url_ts": null
     }}
   ]
 }}

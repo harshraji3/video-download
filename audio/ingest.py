@@ -3,11 +3,10 @@ from audio.db import get_db
 from audio.content_understanding import transcribe_audio
 from audio.indexer import index_audio
 
-AUDIO_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "audio_files")
-
 
 def ingest_audio(
-    file_path: str,
+    data: bytes,
+    filename: str,
     title: str | None = None,
     speaker: str | None = None,
     speaker_count: int | None = None,
@@ -18,10 +17,9 @@ def ingest_audio(
 ) -> dict:
     db = get_db()
 
-    filename = os.path.basename(file_path)
-    file_size = os.path.getsize(file_path)
+    file_size = len(data)
 
-    cu_result = transcribe_audio(file_path)
+    cu_result = transcribe_audio(data, filename)
 
     if speaker_count is None:
         speaker_count = cu_result.get("speaker_count")
@@ -48,7 +46,7 @@ def ingest_audio(
         db.table("audio_files")
         .insert({
             "filename": filename,
-            "file_path": file_path,
+            "file_path": filename,
             "title": title,
             "speaker": speaker,
             "speaker_names": resolved_speaker_names,
@@ -63,6 +61,7 @@ def ingest_audio(
             "cancer_types": cu_result.get("cancer_types"),
             "biomarkers": cu_result.get("biomarkers"),
             "file_size_bytes": file_size,
+            "metadata": {"blob_url": cu_result.get("blob_url")},
         })
         .execute()
     )

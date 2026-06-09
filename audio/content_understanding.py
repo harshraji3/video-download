@@ -6,14 +6,15 @@ _META_KEYS = [
 ]
 
 
-def transcribe_audio(file_path: str) -> dict:
-    audio_url, container, blob_name, conn_str = services.upload_to_blob(file_path)
+def transcribe_audio(data: bytes, filename: str) -> dict:
+    audio_url, permanent_url, container, blob_name, conn_str = services.upload_bytes_to_blob(data, filename)
     _, op_url = services.start_analysis(
         audio_url,
         services._get_env("AZURE_CONTENT_UNDERSTANDING_ANALYZER_ID_AUDIO"),
     )
     result = services.wait_for_analysis(op_url)
     parsed = _parse_result(result)
+    parsed["blob_url"] = permanent_url
     services.set_blob_metadata(conn_str, container, blob_name, parsed, _META_KEYS)
     return parsed
 

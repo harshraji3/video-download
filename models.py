@@ -1,17 +1,4 @@
-from pydantic import BaseModel, HttpUrl
-
-
-class IngestRequest(BaseModel):
-    url: HttpUrl
-
-
-class IngestResponse(BaseModel):
-    document_id: str
-    url: str
-    title: str | None = None
-    paragraph_count: int = 0
-    sentence_count: int = 0
-    chunk_count: int = 0
+from pydantic import BaseModel
 
 
 class QueryRequest(BaseModel):
@@ -44,6 +31,8 @@ class EvidenceBlock(BaseModel):
     speaker: str | None = None
     start_time: float | None = None
     end_time: float | None = None
+    file_url: str | None = None
+    file_url_ts: str | None = None
 
 
 class Citation(BaseModel):
@@ -55,6 +44,8 @@ class Citation(BaseModel):
     start_time: float | None = None
     end_time: float | None = None
     supporting_text: str
+    file_url: str | None = None
+    file_url_ts: str | None = None
 
 
 class QueryResponse(BaseModel):

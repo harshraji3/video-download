@@ -24,7 +24,7 @@ from datetime import datetime, timedelta, timezone
 
 CHUNK_SIZE = 3
 STRIDE = 2
-INDEX_NAME = "media-chunks-v2"
+INDEX_NAME = os.environ.get("AZURE_SEARCH_INDEX_NAME", "media-chunks")
 
 _HTTP = httpx.Client(timeout=httpx.Timeout(300.0, connect=30.0))
 _embed_client: OpenAI | None = None
@@ -40,21 +40,20 @@ def _get_env(key: str) -> str:
 
 # --- Blob Storage ---
 
-def upload_to_blob(file_path: str) -> tuple[str, str, str, str]:
+def upload_bytes_to_blob(data: bytes, blob_name: str) -> tuple[str, str, str, str]:
     conn_str = _get_env("AZURE_STORAGE_CONNECTION_STRING")
     container = _get_env("AZURE_STORAGE_CONTAINER")
-    blob_name = os.path.basename(file_path)
-
-    if not os.path.exists(file_path):
-        raise RuntimeError(f"File not found: {file_path}")
-    file_size = os.path.getsize(file_path)
 
     client = BlobServiceClient.from_connection_string(conn_str)
     container_client = client.get_container_client(container)
-    blob_client = container_client.get_blob_client(blob_name)
 
-    with open(file_path, "rb") as f:
-        blob_client.upload_blob(f, overwrite=True)
+    try:
+        container_client.create_container()
+    except Exception:
+        pass
+
+    blob_client = container_client.get_blob_client(blob_name)
+    blob_client.upload_blob(data, overwrite=True)
 
     parts = dict(p.split("=", 1) for p in conn_str.split(";") if "=" in p)
     sas_token = generate_blob_sas(
@@ -65,7 +64,8 @@ def upload_to_blob(file_path: str) -> tuple[str, str, str, str]:
         permission=BlobSasPermissions(read=True),
         expiry=datetime.now(timezone.utc) + timedelta(hours=1),
     )
-    return f"{blob_client.url}?{sas_token}", container, blob_name, conn_str
+    permanent_url = blob_client.url
+    return f"{permanent_url}?{sas_token}", permanent_url, container, blob_name, conn_str
 
 
 def set_blob_metadata(conn_str: str, container: str, blob_name: str, data: dict, meta_keys: list[str]) -> None:
@@ -230,6 +230,7 @@ def ensure_index() -> None:
         SimpleField(name="start_time", type=SearchFieldDataType.Double),
         SimpleField(name="end_time", type=SearchFieldDataType.Double),
         SimpleField(name="has_keyframe_text", type=SearchFieldDataType.Boolean),
+        SimpleField(name="file_url", type=SearchFieldDataType.String),
         SearchField(
             name="content_vector",
             type=SearchFieldDataType.Collection(SearchFieldDataType.Single),
@@ -272,7 +273,7 @@ def search(query: str, top_k: int = 5, source_type: str | None = None) -> list[d
         select=[
             "id", "source_type", "source_id", "content",
             "sentence_start", "sentence_end", "start_time", "end_time",
-            "has_keyframe_text",
+            "has_keyframe_text", "file_url",
         ],
         filter=filter_expr,
         top=top_k,
@@ -290,6 +291,7 @@ def search(query: str, top_k: int = 5, source_type: str | None = None) -> list[d
             "start_time": r.get("start_time"),
             "end_time": r.get("end_time"),
             "has_keyframe_text": r.get("has_keyframe_text", False),
+            "file_url": r.get("file_url"),
             "score": r["@search.score"],
         })
 
