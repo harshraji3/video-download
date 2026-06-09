@@ -119,7 +119,7 @@ function CitationCard({ citation, onPlay }) {
 
   const ext = citation.file_url?.split('.').pop().toLowerCase()
   const isAudio = ['mp3', 'wav', 'ogg', 'm4a'].includes(ext)
-  const label = isAudio ? 'Listen' : 'Watch'
+  const label = 'Play'//isAudio ? 'Listen' : 'Watch'
 
   return (
     <div className="citation-card">
