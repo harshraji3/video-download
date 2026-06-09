@@ -19,7 +19,7 @@ from azure.search.documents.indexes.models import (
     HnswParameters,
     VectorSearchProfile,
 )
-from azure.storage.blob import BlobServiceClient, generate_blob_sas, BlobSasPermissions
+from azure.storage.blob import BlobServiceClient, generate_blob_sas, BlobSasPermissions, ContentSettings
 from datetime import datetime, timedelta, timezone
 
 CHUNK_SIZE = 3
@@ -53,7 +53,7 @@ def upload_bytes_to_blob(data: bytes, blob_name: str) -> tuple[str, str, str, st
         pass
 
     blob_client = container_client.get_blob_client(blob_name)
-    blob_client.upload_blob(data, overwrite=True)
+    blob_client.upload_blob(data, overwrite=True, content_settings=ContentSettings(content_disposition="inline"))
 
     parts = dict(p.split("=", 1) for p in conn_str.split(";") if "=" in p)
     sas_token = generate_blob_sas(

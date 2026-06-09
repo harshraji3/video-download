@@ -1,5 +1,6 @@
 import os
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+from fastapi.responses import HTMLResponse
 from dotenv import load_dotenv
 from audio.models import IngestResponse as AudioIngestResponse
 from audio.ingest import ingest_audio
@@ -139,6 +140,33 @@ async def query(req: QueryRequest):
         )
     except Exception as e:
         raise HTTPException(500, str(e))
+
+
+@app.get("/play")
+async def play_video(url: str, t: float = 0):
+    html = f"""<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Video Player</title>
+<style>
+  * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+  body {{ background: #000; display: flex; justify-content: center; align-items: center; height: 100vh; }}
+  video {{ max-width: 100vw; max-height: 100vh; }}
+</style>
+</head>
+<body>
+<video id="v" controls autoplay>
+  <source src="{url}" type="video/mp4">
+</video>
+<script>
+  document.getElementById("v").addEventListener("loadedmetadata", function() {{
+    this.currentTime = {t};
+  }});
+</script>
+</body>
+</html>"""
+    return HTMLResponse(content=html)
 
 
 @app.get("/health")

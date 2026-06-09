@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from urllib.parse import quote
 from video.db import get_db
 from services import (
     create_chunks,
@@ -153,7 +154,7 @@ def search(query: str, top_k: int = 5) -> list[dict]:
             "video_title": video_row.get("title"),
             "speaker": video_row.get("speaker"),
             "file_url": r.get("file_url"),
-            "file_url_ts": f"{r.get('file_url')}#t={r['start_time']}" if r.get("file_url") and r.get("start_time") is not None else None,
+            "file_url_ts": f"/play?url={quote(r['file_url'])}&t={r['start_time']}" if r.get("file_url") and r.get("start_time") is not None else None,
             "content": r["content"],
             "sentences": sentences.data,
             "context_window": context_sentences.data,

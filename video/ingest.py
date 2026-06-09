@@ -1,3 +1,4 @@
+import os
 from video.db import get_db
 from video.content_understanding import transcribe_video
 from video.indexer import index_video
