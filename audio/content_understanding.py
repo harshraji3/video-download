@@ -14,7 +14,7 @@ def transcribe_audio(data: bytes, filename: str) -> dict:
     )
     result = services.wait_for_analysis(op_url)
     parsed = _parse_result(result)
-    parsed["blob_url"] = permanent_url
+    parsed["blob_url"] = audio_url
     services.set_blob_metadata(conn_str, container, blob_name, parsed, _META_KEYS)
     return parsed
 

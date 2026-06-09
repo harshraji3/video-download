@@ -7,7 +7,7 @@ import httpx
 from openai import OpenAI
 from azure.core.credentials import AzureKeyCredential
 from azure.search.documents import SearchClient
-from azure.search.documents.models import VectorizedQuery
+from azure.search.documents.models import VectorizedQuery, QueryType
 from azure.search.documents.indexes import SearchIndexClient
 from azure.search.documents.indexes.models import (
     SearchIndex,
@@ -18,13 +18,18 @@ from azure.search.documents.indexes.models import (
     HnswAlgorithmConfiguration,
     HnswParameters,
     VectorSearchProfile,
+    SemanticConfiguration,
+    SemanticPrioritizedFields,
+    SemanticField,
+    SemanticSearch,
 )
-from azure.storage.blob import BlobServiceClient, generate_blob_sas, BlobSasPermissions, ContentSettings
+from azure.storage.blob import BlobServiceClient, generate_blob_sas, BlobSasPermissions, ContentSettings, PublicAccess
 from datetime import datetime, timedelta, timezone
 
 CHUNK_SIZE = 3
 STRIDE = 2
 INDEX_NAME = os.environ.get("AZURE_SEARCH_INDEX_NAME", "media-chunks")
+SEMANTIC_CONFIG_NAME = "media-chunks-semantic-config"
 
 _HTTP = httpx.Client(timeout=httpx.Timeout(300.0, connect=30.0))
 _embed_client: OpenAI | None = None
@@ -49,6 +54,10 @@ def upload_bytes_to_blob(data: bytes, blob_name: str) -> tuple[str, str, str, st
 
     try:
         container_client.create_container()
+        container_client.set_container_access_policy(
+            signed_identifiers={},
+            public_access=PublicAccess.BLOB,
+        )
     except Exception:
         pass
 
@@ -74,10 +83,11 @@ def upload_bytes_to_blob(data: bytes, blob_name: str) -> tuple[str, str, str, st
         blob_name=blob_name,
         account_key=parts["AccountKey"],
         permission=BlobSasPermissions(read=True),
-        expiry=datetime.now(timezone.utc) + timedelta(hours=1),
+        expiry=datetime.now(timezone.utc) + timedelta(days=30),
     )
     permanent_url = blob_client.url
-    return f"{permanent_url}?{sas_token}", permanent_url, container, blob_name, conn_str
+    sas_url = f"{permanent_url}?{sas_token}"
+    return sas_url, permanent_url, container, blob_name, conn_str
 
 
 def set_blob_metadata(conn_str: str, container: str, blob_name: str, data: dict, meta_keys: list[str]) -> None:
@@ -266,7 +276,21 @@ def ensure_index() -> None:
         ],
     )
 
-    client.create_index(SearchIndex(name=INDEX_NAME, fields=fields, vector_search=vector_search))
+    semantic_config = SemanticConfiguration(
+        name=SEMANTIC_CONFIG_NAME,
+        prioritized_fields=SemanticPrioritizedFields(
+            content_fields=[SemanticField(field_name="content")],
+        ),
+    )
+
+    semantic_search = SemanticSearch(configurations=[semantic_config])
+
+    client.create_index(SearchIndex(
+        name=INDEX_NAME,
+        fields=fields,
+        vector_search=vector_search,
+        semantic_search=semantic_search,
+    ))
 
 
 def index_docs(docs: list[dict]) -> None:
@@ -284,6 +308,8 @@ def search(query: str, top_k: int = 5, source_type: str | None = None) -> list[d
     results = client.search(
         search_text=query,
         vector_queries=[VectorizedQuery(vector=q_emb, k_nearest_neighbors=top_k, fields="content_vector")],
+        query_type=QueryType.SEMANTIC,
+        semantic_configuration_name=SEMANTIC_CONFIG_NAME,
         select=[
             "id", "source_type", "source_id", "content",
             "sentence_start", "sentence_end", "start_time", "end_time",
