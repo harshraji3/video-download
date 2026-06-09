@@ -243,6 +243,8 @@ def ensure_index() -> None:
         SimpleField(name="end_time", type=SearchFieldDataType.Double),
         SimpleField(name="has_keyframe_text", type=SearchFieldDataType.Boolean),
         SimpleField(name="file_url", type=SearchFieldDataType.String),
+        SimpleField(name="file_url_ts", type=SearchFieldDataType.String),
+        SimpleField(name="source_title", type=SearchFieldDataType.String),
         SearchField(
             name="content_vector",
             type=SearchFieldDataType.Collection(SearchFieldDataType.Single),
@@ -285,7 +287,7 @@ def search(query: str, top_k: int = 5, source_type: str | None = None) -> list[d
         select=[
             "id", "source_type", "source_id", "content",
             "sentence_start", "sentence_end", "start_time", "end_time",
-            "has_keyframe_text", "file_url",
+            "has_keyframe_text", "file_url", "file_url_ts", "source_title",
         ],
         filter=filter_expr,
         top=top_k,
@@ -297,6 +299,7 @@ def search(query: str, top_k: int = 5, source_type: str | None = None) -> list[d
             "chunk_id": r["id"],
             "source_type": r.get("source_type", "unknown"),
             "source_id": r.get("source_id"),
+            "source_title": r.get("source_title"),
             "content": r["content"],
             "sentence_start": r.get("sentence_start"),
             "sentence_end": r.get("sentence_end"),
@@ -304,6 +307,7 @@ def search(query: str, top_k: int = 5, source_type: str | None = None) -> list[d
             "end_time": r.get("end_time"),
             "has_keyframe_text": r.get("has_keyframe_text", False),
             "file_url": r.get("file_url"),
+            "file_url_ts": r.get("file_url_ts"),
             "score": r["@search.score"],
         })
 

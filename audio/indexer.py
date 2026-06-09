@@ -49,18 +49,22 @@ def index_audio(audio_file_id: str) -> int:
 
     ensure_index()
     docs = []
-    audio_row = db.table("audio_files").select("metadata").eq("id", audio_file_id).limit(1).execute()
+    audio_row = db.table("audio_files").select("metadata, title").eq("id", audio_file_id).limit(1).execute()
     file_url = None
+    source_title = None
     if audio_row.data:
         meta = audio_row.data[0].get("metadata") or {}
         file_url = meta.get("blob_url") if isinstance(meta, dict) else None
+        source_title = audio_row.data[0].get("title")
 
     for chunk_row, chunk_data, emb in zip(inserted_chunks, chunks, embeddings):
         chunk_id = chunk_row["id"]
+        file_url_ts = f"/play?url={quote(file_url)}&t={chunk_data['start_time']}" if file_url and chunk_data.get("start_time") is not None else None
         docs.append({
             "id": f"audio_chunk_{chunk_id}",
             "source_type": "audio",
             "source_id": audio_file_id,
+            "source_title": source_title,
             "content": chunk_data["content"],
             "sentence_start": chunk_data["sentence_start"],
             "sentence_end": chunk_data["sentence_end"],
@@ -68,6 +72,7 @@ def index_audio(audio_file_id: str) -> int:
             "end_time": chunk_data["end_time"],
             "has_keyframe_text": False,
             "file_url": file_url,
+            "file_url_ts": file_url_ts,
             "content_vector": emb,
         })
 
@@ -125,10 +130,10 @@ def search(query: str, top_k: int = 5) -> list[dict]:
             "chunk_id": r["chunk_id"],
             "source_type": "audio",
             "audio_file_id": source_id,
-            "audio_title": audio_row.get("title"),
+            "audio_title": audio_row.get("title") or r.get("source_title"),
             "speaker": audio_row.get("speaker"),
             "file_url": r.get("file_url"),
-            "file_url_ts": f"/play?url={quote(r['file_url'])}&t={r['start_time']}" if r.get("file_url") and r.get("start_time") is not None else None,
+            "file_url_ts": r.get("file_url_ts"),
             "content": r["content"],
             "sentences": sentences.data,
             "context_window": context_sentences.data,

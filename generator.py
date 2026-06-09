@@ -39,6 +39,8 @@ def generate_answer(query: str, evidence_blocks: list[dict]) -> dict:
             lines.append(f"Timestamp: {block.get('start_time', '?')}s - {block.get('end_time', '?')}s")
             if block.get("file_url"):
                 lines.append(f"File URL: {block['file_url']}")
+            if block.get("file_url_ts"):
+                lines.append(f"Timestamped File URL: {block['file_url_ts']}")
         elif source_type == "video":
             lines.append(f"Type: Video Transcript")
             lines.append(f"Title: {block.get('video_title', 'N/A')}")
