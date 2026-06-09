@@ -1,7 +1,8 @@
 import os
 import html
+import json
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from dotenv import load_dotenv
 from audio.models import IngestResponse as AudioIngestResponse
 from audio.ingest import ingest_audio
@@ -9,8 +10,9 @@ from audio.indexer import search as audio_search
 from video.models import IngestResponse as VideoIngestResponse
 from video.ingest import ingest_video
 from video.indexer import search as video_search
-from models import QueryRequest, QueryResponse, Citation
-from generator import generate_answer
+from models import QueryRequest, QueryResponse, Citation, HistoryResponse, HistoryMessage
+from generator import generate_answer, generate_answer_stream
+from mongo_db import save_message, get_history
 
 load_dotenv()
 
@@ -18,6 +20,8 @@ ACTIVE_SOURCES = {
     s.strip()
     for s in os.environ.get("ACTIVE_SOURCES", "audio,video").split(",")
 }
+
+STREAMING_ENABLED = os.environ.get("STREAMING_ENABLED", "false").lower() in ("true", "1", "yes")
 
 app = FastAPI(title="Video Search - Ingestion API")
 
@@ -130,7 +134,18 @@ async def query(req: QueryRequest):
         results.sort(key=lambda r: r["score"], reverse=True)
         results = results[: req.top_k]
 
-        gen = generate_answer(req.query, results)
+        # Fetch conversation history from MongoDB (last 10 messages)
+        history = []
+        if req.session_id:
+            raw = get_history(req.session_id, limit=10)
+            history = [{"role": m["role"], "text": m["text"]} for m in raw]
+
+        gen = generate_answer(req.query, results, history=history)
+
+        # Save to MongoDB
+        if req.session_id:
+            save_message(req.session_id, "user", req.query)
+            save_message(req.session_id, "assistant", gen["answer"], gen.get("citations", []))
 
         return QueryResponse(
             query=req.query,
@@ -143,6 +158,72 @@ async def query(req: QueryRequest):
         raise HTTPException(500, str(e))
 
 
+@app.post("/query/stream")
+async def query_stream(req: QueryRequest):
+    if not STREAMING_ENABLED:
+        raise HTTPException(404, "Streaming is not enabled")
+
+    try:
+        results = []
+        if "audio" in ACTIVE_SOURCES:
+            results.extend(audio_search(req.query, top_k=req.top_k))
+        if "video" in ACTIVE_SOURCES:
+            results.extend(video_search(req.query, top_k=req.top_k))
+
+        results.sort(key=lambda r: r["score"], reverse=True)
+        results = results[: req.top_k]
+
+        history = []
+        if req.session_id:
+            raw = get_history(req.session_id, limit=10)
+            history = [{"role": m["role"], "text": m["text"]} for m in raw]
+
+        async def stream():
+            full_answer = ""
+            full_citations = []
+            insufficient_evidence = False
+
+            if req.session_id:
+                save_message(req.session_id, "user", req.query)
+
+            for sse_data in generate_answer_stream(req.query, results, history=history):
+                yield sse_data
+                prefix = "data: "
+                if sse_data.startswith(prefix):
+                    try:
+                        evt = json.loads(sse_data[len(prefix):].strip())
+                        if evt.get("type") == "done":
+                            full_answer = evt["answer"]
+                            full_citations = evt.get("citations", [])
+                            insufficient_evidence = evt.get("insufficient_evidence", False)
+                    except json.JSONDecodeError:
+                        pass
+
+            if req.session_id and full_answer:
+                save_message(req.session_id, "assistant", full_answer, full_citations)
+
+        return StreamingResponse(stream(), media_type="text/event-stream")
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.get("/history", response_model=HistoryResponse)
+async def get_chat_history(session_id: str):
+    try:
+        raw = get_history(session_id, limit=50)
+        messages = [
+            HistoryMessage(
+                role=m["role"],
+                text=m["text"],
+                citations=[Citation(**c) for c in (m.get("citations") or [])] if m["role"] == "assistant" else None,
+            )
+            for m in raw
+        ]
+        return HistoryResponse(session_id=session_id, messages=messages)
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
 @app.get("/play")
 async def play_video(url: str, t: float = 0):
     safe_url = html.escape(url).replace(" ", "%20")
@@ -150,7 +231,7 @@ async def play_video(url: str, t: float = 0):
     if ".wav" in url or ".mp3" in url:
         content_type = "audio/mpeg"
 
-    html = f"""<!DOCTYPE html>
+    html_content = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -183,7 +264,7 @@ async def play_video(url: str, t: float = 0):
 </script>
 </body>
 </html>"""
-    return HTMLResponse(content=html)
+    return HTMLResponse(content=html_content)
 
 
 @app.get("/health")

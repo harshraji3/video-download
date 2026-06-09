@@ -4,6 +4,7 @@ from pydantic import BaseModel
 class QueryRequest(BaseModel):
     query: str
     top_k: int = 5
+    session_id: str | None = None
 
 
 class EvidenceSentence(BaseModel):
@@ -54,3 +55,14 @@ class QueryResponse(BaseModel):
     answer: str | None = None
     insufficient_evidence: bool | None = None
     citations: list[Citation] | None = None
+
+
+class HistoryMessage(BaseModel):
+    role: str
+    text: str
+    citations: list[Citation] | None = None
+
+
+class HistoryResponse(BaseModel):
+    session_id: str
+    messages: list[HistoryMessage]
