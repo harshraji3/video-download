@@ -349,13 +349,7 @@ See `backend/requirements.txt` and `frontend/clinsearch/package.json` for full l
 4. Push: `git push origin feature/new-feature`
 5. Create Pull Request
 
----
 
-## 📄 License
-
-Internal project - i3 Digital Health
-
----
 
 ## 📞 Support
 
@@ -363,7 +357,7 @@ For issues or questions:
 - Check this README first
 - Review backend logs: `main.py` output
 - Check browser console: F12 in frontend
-- Contact senior developer
+
 
 ---
 
