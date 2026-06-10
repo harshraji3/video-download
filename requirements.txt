@@ -1,0 +1,5 @@
+yt-dlp
+youtube-transcript-api
+azure-storage-blob
+fastapi
+uvicorn

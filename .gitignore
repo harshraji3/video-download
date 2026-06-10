@@ -1,0 +1,14 @@
+# Azure Functions
+local.settings.json
+__pycache__/
+*.pyc
+.python_packages/
+.venv/
+venv/
+
+# Library output
+oncology-video-library/
+
+# OS
+.DS_Store
+Thumbs.db
